@@ -3,6 +3,7 @@ import { csrf } from 'hono/csrf'
 import { renderer } from './renderer'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
+import QRCode from 'qrcode'
 
 type Bindings = {
   KV: KVNamespace
@@ -72,11 +73,15 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   return key
 }
 
+
 app.post('/create', csrf(), validator, async (c) => {
   const { url } = c.req.valid('form')
   const key = await createKey(c.env.KV, url)
 
   const shortenUrl = new URL(`/${key}`, c.req.url)
+
+  // Genera QR code come Data URL
+  const qrCodeDataUrl = await QRCode.toDataURL(shortenUrl.toString())
 
   return c.render(
     <div>
@@ -89,8 +94,13 @@ app.post('/create', csrf(), validator, async (c) => {
         }}
         autofocus
       />
+      <div style={{ marginTop: '20px' }}>
+        <h3>QR Code:</h3>
+        <img src={qrCodeDataUrl} alt="QR Code" />
+      </div>
     </div>
   )
 })
+
 
 export default app
