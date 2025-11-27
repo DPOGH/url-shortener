@@ -27,17 +27,16 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   return c.redirect(url)
 })
 
-// Pagina iniziale con form corretto
+// Home page con form
 app.get('/', (c) => {
   return c.render(
     <div>
-      <h2>Create shorten URL!</h2>
+      <h2>Create shortened URL!</h2>
       <form action="/create" method="post">
         <input
           type="text"
           name="url"
           autoComplete="off"
-          placeholder="https://example.com"
           style={{ width: '80%' }}
         />
         &nbsp;
@@ -56,7 +55,6 @@ const validator = zValidator('form', schema, (result, c) => {
     return c.render(
       <div>
         <h2>Error!</h2>
-        <p>Invalid URL format</p>
         <a href="/">Back to top</a>
       </div>
     )
@@ -70,26 +68,25 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   const result = await kv.get(key)
   if (!result) {
     await kv.put(key, url)
-    return key
   } else {
     return await createKey(kv, url)
   }
+  return key
 }
 
-// Handler per creare URL + QR code
+// Handler per creare URL + QR (SVG)
 app.post('/create', csrf(), validator, async (c) => {
   try {
     const { url } = c.req.valid('form')
-    console.log('URL input:', url)
-
     const key = await createKey(c.env.KV, url)
-    console.log('Generated key:', key)
 
     const shortenUrl = new URL(`/${key}`, c.req.url)
-    console.log('Shorten URL:', shortenUrl.toString())
 
-    const qrCodeDataUrl = await QRCode.toDataURL(shortenUrl.toString())
-    console.log('QR generated, length:', qrCodeDataUrl.length)
+    // Genera QR code come SVG (compatibile con Workers/Pages)
+    const qrSvg = await QRCode.toString(shortenUrl.toString(), {
+      type: 'svg',
+      margin: 1
+    })
 
     return c.render(
       <div>
@@ -102,7 +99,7 @@ app.post('/create', csrf(), validator, async (c) => {
         />
         <div style={{ marginTop: '20px' }}>
           <h3>QR Code:</h3>
-          <img src={qrCodeDataUrl} alt="QR Code" />
+          <div dangerouslySetInnerHTML={{ __html: qrSvg }} />
         </div>
         <div style={{ marginTop: '10px' }}>
           <a href="/">Back to Home</a>
@@ -114,6 +111,5 @@ app.post('/create', csrf(), validator, async (c) => {
     return c.text('Internal error while creating QR', 500)
   }
 })
-
 
 export default app
