@@ -1,3 +1,4 @@
+
 import { Hono } from 'hono'
 import { csrf } from 'hono/csrf'
 import { renderer } from './renderer'
@@ -9,31 +10,25 @@ type Bindings = {
   KV: KVNamespace
 }
 
-const app = new Hono<{
-  Bindings: Bindings
-}>()
+const app = new Hono<{ Bindings: Bindings }>()
 
-// Apply JSX renderer to all routes
+// Applica renderer JSX
 app.all('*', renderer)
 
-// Redirect for shortened URL
+// Redirect per URL accorciato
 app.get('/:key{[0-9a-z]{6}}', async (c) => {
   const key = c.req.param('key')
   const url = await c.env.KV.get(key)
-
-  if (url === null) {
-    return c.redirect('/')
-  }
-
+  if (!url) return c.redirect('/')
   return c.redirect(url)
 })
 
-// Home page with form
+// Home page con form
 app.get('/', (c) => {
   return c.render(
     <div>
       <h2>Create shortened URL!</h2>
-      <form action="/create" method="post">
+      /create
         <input
           type="text"
           name="url"
@@ -47,61 +42,51 @@ app.get('/', (c) => {
   )
 })
 
-const schema = z.object({
-  url: z.string().url()
-})
+const schema = z.object({ url: z.string().url() })
 
-// Zod validator with simple error page
 const validator = zValidator('form', schema, (result, c) => {
   if (!result.success) {
     return c.render(
       <div>
         <h2>Error!</h2>
-        <a href="/">Back to top</a>
+        /Back to top</a>
       </div>
     )
   }
 })
 
-// Generate unique key and store URL in KV
+// Funzione per creare chiave unica
 const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   const uuid = crypto.randomUUID()
   const key = uuid.substring(0, 6)
-  const result = await kv.get(key)
-  if (!result) {
+  const exists = await kv.get(key)
+  if (!exists) {
     await kv.put(key, url)
-  } else {
-    return await createKey(kv, url)
+    return key
   }
-  return key
+  return createKey(kv, url)
 }
 
-// Create shortened URL + QR (SVG 200px) + copy button
+// Handler per creare URL + QR PNG + bottoni
 app.post('/create', csrf(), validator, async (c) => {
   try {
     const { url } = c.req.valid('form')
     const key = await createKey(c.env.KV, url)
-
     const shortenUrl = new URL(`/${key}`, c.req.url)
     const shortUrlStr = shortenUrl.toString()
 
-    // Generate QR code as SVG
-    const qrSvgRaw = await QRCode.toString(shortUrlStr, {
-      type: 'svg',
-      margin: 0
+    // Genera QR code come PNG (base64)
+    const qrPngDataUrl = await QRCode.toDataURL(shortUrlStr, {
+      type: 'image/png',
+      margin: 1,
+      scale: 6 // alta risoluzione
     })
-
-    // Force 200x200 size on <svg>
-    const qrSvg = qrSvgRaw.replace(
-      '<svg',
-      '<svg width="200" height="200"'
-    )
 
     return c.render(
       <div>
         <h2>Created!</h2>
 
-        {/* Short URL field */}
+        {/* Campo URL */}
         <div style={{ marginBottom: '10px' }}>
           <input
             id="short-url"
@@ -112,68 +97,8 @@ app.post('/create', csrf(), validator, async (c) => {
           />
         </div>
 
-        {/* Copy button + status text */}
+        {/* Bottoni */}
         <div style={{ marginBottom: '20px' }}>
-          <button id="copy-btn" type="button">
-            Copy URL
-          </button>
-          <span
-            id="copy-status"
-            style={{ marginLeft: '10px', fontSize: '0.9em' }}
-          />
-        </div>
-
-        {/* QR code (SVG) */}
-        <div style={{ marginTop: '10px' }}>
-          <h3>QR Code:</h3>
-          <div
-            style={{ width: '200px', height: '200px' }}
-            dangerouslySetInnerHTML={{ __html: qrSvg }}
-          />
-        </div>
-
-        {/* Back link */}
-        <div style={{ marginTop: '10px' }}>
-          <a href="/">Back to Home</a>
-        </div>
-
-        {/* Client-side script to handle copy-to-clipboard */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function () {
-                const btn = document.getElementById('copy-btn');
-                const input = document.getElementById('short-url');
-                const status = document.getElementById('copy-status');
-                if (!btn || !input) return;
-
-                btn.addEventListener('click', async () => {
-                  const text = input.value;
-                  try {
-                    if (navigator.clipboard && navigator.clipboard.writeText) {
-                      await navigator.clipboard.writeText(text);
-                    } else {
-                      input.select();
-                      document.execCommand('copy');
-                    }
-                    if (status) {
-                      status.textContent = 'Copied!';
-                      setTimeout(() => (status.textContent = ''), 2000);
-                    }
-                  } catch (e) {
-                    if (status) status.textContent = 'Copy failed';
-                  }
-                });
-              })();
-            `,
-          }}
-        />
-      </div>
-    )
-  } catch (e) {
-    console.error('Error in /create handler:', e)
-    return c.text('Internal error while creating QR', 500)
-  }
-})
-
-export default app
+          <button id="copy-btn" type="button">Copy URL</button>
+          <button
+            id="download-btn"
