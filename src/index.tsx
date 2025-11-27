@@ -78,33 +78,42 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
 
 // Handler per creare URL + QR code
 app.post('/create', csrf(), validator, async (c) => {
-  const { url } = c.req.valid('form')
-  const key = await createKey(c.env.KV, url)
+  try {
+    const { url } = c.req.valid('form')
+    console.log('URL input:', url)
 
-  const shortenUrl = new URL(`/${key}`, c.req.url)
+    const key = await createKey(c.env.KV, url)
+    console.log('Generated key:', key)
 
-  // Genera QR code come Data URL
-  const qrCodeDataUrl = await QRCode.toDataURL(shortenUrl.toString())
+    const shortenUrl = new URL(`/${key}`, c.req.url)
+    console.log('Shorten URL:', shortenUrl.toString())
 
-  return c.render(
-    <div>
-      <h2>Created!</h2>
-      <input
-        type="text"
-        value={shortenUrl.toString()}
-        style={{ width: '80%' }}
-        readOnly
-        onClick={(e) => e.currentTarget.select()}
-      />
-      <div style={{ marginTop: '20px' }}>
-        <h3>QR Code:</h3>
-        <img src={qrCodeDataUrl} alt="QR Code" style={{ maxWidth: '200px' }} />
+    const qrCodeDataUrl = await QRCode.toDataURL(shortenUrl.toString())
+    console.log('QR generated, length:', qrCodeDataUrl.length)
+
+    return c.render(
+      <div>
+        <h2>Created!</h2>
+        <input
+          type="text"
+          value={shortenUrl.toString()}
+          style={{ width: '80%' }}
+          readOnly
+        />
+        <div style={{ marginTop: '20px' }}>
+          <h3>QR Code:</h3>
+          <img src={qrCodeDataUrl} alt="QR Code" />
+        </div>
+        <div style={{ marginTop: '10px' }}>
+          <a href="/">Back to Home</a>
+        </div>
       </div>
-      <div style={{ marginTop: '10px' }}>
-        <a href="/">Back to Home</a>
-      </div>
-    </div>
-  )
+    )
+  } catch (e) {
+    console.error('Error in /create handler:', e)
+    return c.text('Internal error while creating QR', 500)
+  }
 })
+
 
 export default app
