@@ -81,26 +81,58 @@ app.post('/create', csrf(), validator, async (c) => {
     const key = await createKey(c.env.KV, url)
 
     const shortenUrl = new URL(`/${key}`, c.req.url)
+    const shortUrlStr = shortenUrl.toString()
 
-    // Genera QR code come SVG (compatibile con Workers/Pages)
-    const qrSvg = await QRCode.toString(shortenUrl.toString(), {
+    // QR SVG con dimensione più piccola
+    const qrSvgRaw = await QRCode.toString(shortUrlStr, {
       type: 'svg',
-      margin: 1
+      margin: 0
     })
+
+    // Wrappo lo SVG in un container con width/height controllate via CSS inline
+    const qrSvg = qrSvgRaw.replace(
+      '<svg',
+      '<svg width="120" height="120"'
+    )
 
     return c.render(
       <div>
         <h2>Created!</h2>
-        <input
-          type="text"
-          value={shortenUrl.toString()}
-          style={{ width: '80%' }}
-          readOnly
-        />
-        <div style={{ marginTop: '20px' }}>
-          <h3>QR Code:</h3>
-          <div dangerouslySetInnerHTML={{ __html: qrSvg }} />
+
+        <div style={{ marginBottom: '10px' }}>
+          <input
+            id="short-url"
+            type="text"
+            value={shortUrlStr}
+            style={{ width: '80%' }}
+            readOnly
+          />
         </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(shortUrlStr)
+                alert('URL copied!')
+              } catch (e) {
+                alert('Cannot copy, please copy manually.')
+              }
+            }}
+          >
+            Copy URL
+          </button>
+        </div>
+
+        <div style={{ marginTop: '10px' }}>
+          <h3>QR Code:</h3>
+          <div
+            style={{ width: '120px', height: '120px' }}
+            dangerouslySetInnerHTML={{ __html: qrSvg }}
+          />
+        </div>
+
         <div style={{ marginTop: '10px' }}>
           <a href="/">Back to Home</a>
         </div>
@@ -111,5 +143,6 @@ app.post('/create', csrf(), validator, async (c) => {
     return c.text('Internal error while creating QR', 500)
   }
 })
+
 
 export default app
