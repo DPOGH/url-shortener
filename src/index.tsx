@@ -3,7 +3,7 @@ import { csrf } from 'hono/csrf'
 import { renderer } from './renderer'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import QRCode from 'qrcode' // ✅ Import libreria QR
+import QRCode from 'qrcode'
 
 type Bindings = {
   KV: KVNamespace
@@ -15,7 +15,7 @@ const app = new Hono<{
 
 app.all('*', renderer)
 
-// ✅ Redirect per URL accorciato
+// Redirect per URL accorciato
 app.get('/:key{[0-9a-z]{6}}', async (c) => {
   const key = c.req.param('key')
   const url = await c.env.KV.get(key)
@@ -27,16 +27,17 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   return c.redirect(url)
 })
 
-// ✅ Pagina iniziale con form corretto
+// Pagina iniziale con form corretto
 app.get('/', (c) => {
   return c.render(
     <div>
       <h2>Create shorten URL!</h2>
-      /create
+      <form action="/create" method="post">
         <input
           type="text"
           name="url"
           autoComplete="off"
+          placeholder="https://example.com"
           style={{ width: '80%' }}
         />
         &nbsp;
@@ -55,26 +56,27 @@ const validator = zValidator('form', schema, (result, c) => {
     return c.render(
       <div>
         <h2>Error!</h2>
-        /Back to top</a>
+        <p>Invalid URL format</p>
+        <a href="/">Back to top</a>
       </div>
     )
   }
 })
 
-// ✅ Funzione per creare chiave unica
+// Funzione per creare chiave unica
 const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   const uuid = crypto.randomUUID()
   const key = uuid.substring(0, 6)
   const result = await kv.get(key)
   if (!result) {
     await kv.put(key, url)
+    return key
   } else {
     return await createKey(kv, url)
   }
-  return key
 }
 
-// ✅ Handler per creare URL + QR code
+// Handler per creare URL + QR code
 app.post('/create', csrf(), validator, async (c) => {
   const { url } = c.req.valid('form')
   const key = await createKey(c.env.KV, url)
@@ -91,14 +93,15 @@ app.post('/create', csrf(), validator, async (c) => {
         type="text"
         value={shortenUrl.toString()}
         style={{ width: '80%' }}
-        autoFocus
+        readOnly
+        onClick={(e) => e.currentTarget.select()}
       />
       <div style={{ marginTop: '20px' }}>
         <h3>QR Code:</h3>
-        <img src={qrCodeDataUrl} alt="QR Code" />
+        <img src={qrCodeDataUrl} alt="QR Code" style={{ maxWidth: '200px' }} />
       </div>
       <div style={{ marginTop: '10px' }}>
-        /Back to Home</a>
+        <a href="/">Back to Home</a>
       </div>
     </div>
   )
