@@ -13,9 +13,10 @@ const app = new Hono<{
   Bindings: Bindings
 }>()
 
+// Apply JSX renderer to all routes
 app.all('*', renderer)
 
-// Redirect per URL accorciato
+// Redirect for shortened URL
 app.get('/:key{[0-9a-z]{6}}', async (c) => {
   const key = c.req.param('key')
   const url = await c.env.KV.get(key)
@@ -27,7 +28,7 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   return c.redirect(url)
 })
 
-// Home page con form
+// Home page with form
 app.get('/', (c) => {
   return c.render(
     <div>
@@ -50,6 +51,7 @@ const schema = z.object({
   url: z.string().url()
 })
 
+// Zod validator with simple error page
 const validator = zValidator('form', schema, (result, c) => {
   if (!result.success) {
     return c.render(
@@ -61,7 +63,7 @@ const validator = zValidator('form', schema, (result, c) => {
   }
 })
 
-// Funzione per creare chiave unica
+// Generate unique key and store URL in KV
 const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   const uuid = crypto.randomUUID()
   const key = uuid.substring(0, 6)
@@ -74,7 +76,7 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   return key
 }
 
-// Handler per creare URL + QR (SVG)
+// Create shortened URL + QR (SVG 200px) + copy button
 app.post('/create', csrf(), validator, async (c) => {
   try {
     const { url } = c.req.valid('form')
@@ -83,22 +85,23 @@ app.post('/create', csrf(), validator, async (c) => {
     const shortenUrl = new URL(`/${key}`, c.req.url)
     const shortUrlStr = shortenUrl.toString()
 
-    // QR SVG con dimensione più piccola
+    // Generate QR code as SVG
     const qrSvgRaw = await QRCode.toString(shortUrlStr, {
       type: 'svg',
       margin: 0
     })
 
-    // Wrappo lo SVG in un container con width/height controllate via CSS inline
+    // Force 200x200 size on <svg>
     const qrSvg = qrSvgRaw.replace(
       '<svg',
-      '<svg width="120" height="120"'
+      '<svg width="200" height="200"'
     )
 
     return c.render(
       <div>
         <h2>Created!</h2>
 
+        {/* Short URL field */}
         <div style={{ marginBottom: '10px' }}>
           <input
             id="short-url"
@@ -109,40 +112,25 @@ app.post('/create', csrf(), validator, async (c) => {
           />
         </div>
 
+        {/* Copy button + status text */}
         <div style={{ marginBottom: '20px' }}>
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(shortUrlStr)
-                alert('URL copied!')
-              } catch (e) {
-                alert('Cannot copy, please copy manually.')
-              }
-            }}
-          >
+          <button id="copy-btn" type="button">
             Copy URL
           </button>
+          <span
+            id="copy-status"
+            style={{ marginLeft: '10px', fontSize: '0.9em' }}
+          />
         </div>
 
+        {/* QR code (SVG) */}
         <div style={{ marginTop: '10px' }}>
           <h3>QR Code:</h3>
           <div
-            style={{ width: '120px', height: '120px' }}
+            style={{ width: '200px', height: '200px' }}
             dangerouslySetInnerHTML={{ __html: qrSvg }}
           />
         </div>
 
-        <div style={{ marginTop: '10px' }}>
-          <a href="/">Back to Home</a>
-        </div>
-      </div>
-    )
-  } catch (e) {
-    console.error('Error in /create handler:', e)
-    return c.text('Internal error while creating QR', 500)
-  }
-})
-
-
-export default app
+        {/* Back link */}
+        <div
