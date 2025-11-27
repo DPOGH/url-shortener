@@ -133,4 +133,47 @@ app.post('/create', csrf(), validator, async (c) => {
         </div>
 
         {/* Back link */}
-        <div
+        <div style={{ marginTop: '10px' }}>
+          <a href="/">Back to Home</a>
+        </div>
+
+        {/* Client-side script to handle copy-to-clipboard */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                const btn = document.getElementById('copy-btn');
+                const input = document.getElementById('short-url');
+                const status = document.getElementById('copy-status');
+                if (!btn || !input) return;
+
+                btn.addEventListener('click', async () => {
+                  const text = input.value;
+                  try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                      await navigator.clipboard.writeText(text);
+                    } else {
+                      input.select();
+                      document.execCommand('copy');
+                    }
+                    if (status) {
+                      status.textContent = 'Copied!';
+                      setTimeout(() => (status.textContent = ''), 2000);
+                    }
+                  } catch (e) {
+                    if (status) status.textContent = 'Copy failed';
+                  }
+                });
+              })();
+            `,
+          }}
+        />
+      </div>
+    )
+  } catch (e) {
+    console.error('Error in /create handler:', e)
+    return c.text('Internal error while creating QR', 500)
+  }
+})
+
+export default app
