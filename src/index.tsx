@@ -180,3 +180,200 @@ app.post('/create', csrf(), validator, async (c) => {
     // Force 200x200 size on <svg>
     const qrSvg = qrSvgRaw.replace(
       '<svg',
+      '<svg width="200" height="200"'
+    )
+
+    return c.render(
+      <div>
+        <h2>Created!</h2>
+
+        {/* Short URL field */}
+        <div style={{ marginBottom: '10px' }}>
+          <input
+            id="short-url"
+            type="text"
+            value={shortUrlStr}
+            style={{ width: '80%' }}
+            readOnly
+          />
+        </div>
+
+        {/* Buttons for URL and QR */}
+        <div style={{ marginBottom: '20px' }}>
+          <button id="copy-url-btn" type="button">
+            Copy URL
+          </button>
+          <button
+            id="copy-qr-btn"
+            type="button"
+            style={{ marginLeft: '10px' }}
+          >
+            Copy QR (PNG)
+          </button>
+          <button
+            id="download-qr-btn"
+            type="button"
+            style={{ marginLeft: '10px' }}
+          >
+            Download QR (PNG)
+          </button>
+          <span
+            id="copy-status"
+            style={{ marginLeft: '10px', fontSize: '0.9em' }}
+          />
+        </div>
+
+        {/* QR code (SVG) */}
+        <div style={{ marginTop: '10px' }}>
+          <h3>QR Code:</h3>
+          <div
+            id="qr-container"
+            style={{ width: '200px', height: '200px' }}
+            dangerouslySetInnerHTML={{ __html: qrSvg }}
+          />
+        </div>
+
+        {/* Back link */}
+        <div style={{ marginTop: '10px' }}>
+          <a href="/">Back to Home</a>
+        </div>
+
+        {/* Client-side script: copy URL, copy QR PNG, download QR PNG */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                const copyUrlBtn = document.getElementById('copy-url-btn');
+                const copyQrBtn = document.getElementById('copy-qr-btn');
+                const downloadQrBtn = document.getElementById('download-qr-btn');
+                const input = document.getElementById('short-url');
+                const status = document.getElementById('copy-status');
+                const qrContainer = document.getElementById('qr-container');
+                if (!input || !qrContainer) return;
+
+                // Copy URL button
+                if (copyUrlBtn) {
+                  copyUrlBtn.addEventListener('click', async () => {
+                    const text = input.value;
+                    try {
+                      if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(text);
+                      } else {
+                        input.select();
+                        document.execCommand('copy');
+                      }
+                      if (status) {
+                        status.textContent = 'URL copied!';
+                        setTimeout(() => (status.textContent = ''), 2000);
+                      }
+                    } catch (e) {
+                      if (status) status.textContent = 'URL copy failed';
+                    }
+                  });
+                }
+
+                // Convert SVG → PNG (200x200) and return a Blob
+                async function svgToPngBlob() {
+                  const svgEl = qrContainer.querySelector('svg');
+                  if (!svgEl) throw new Error('SVG not found');
+
+                  const svgData = new XMLSerializer().serializeToString(svgEl);
+                  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                  const url = URL.createObjectURL(svgBlob);
+
+                  try {
+                    const img = new Image();
+                    const imgLoad = new Promise((resolve, reject) => {
+                      img.onload = resolve;
+                      img.onerror = reject;
+                    });
+                    img.src = url;
+                    await imgLoad;
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 200;
+                    canvas.height = 200;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) throw new Error('No canvas context');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, 200, 200);
+
+                    return await new Promise((resolve, reject) => {
+                      canvas.toBlob((blob) => {
+                        if (!blob) reject(new Error('PNG blob failed'));
+                        else resolve(blob);
+                      }, 'image/png');
+                    });
+                  } finally {
+                    URL.revokeObjectURL(url);
+                  }
+                }
+
+                // Download PNG helper
+                function downloadPng(blob) {
+                  const pngUrl = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = pngUrl;
+                  a.download = 'qr-code.png';
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(pngUrl);
+                }
+
+                // Download QR (PNG)
+                if (downloadQrBtn) {
+                  downloadQrBtn.addEventListener('click', async () => {
+                    try {
+                      const blob = await svgToPngBlob();
+                      downloadPng(blob);
+                    } catch (e) {
+                      if (status) status.textContent = 'Download failed';
+                    }
+                  });
+                }
+
+                // Copy QR (PNG) to clipboard (with fallback to download)
+                if (copyQrBtn) {
+                  copyQrBtn.addEventListener('click', async () => {
+                    try {
+                      const blob = await svgToPngBlob();
+
+                      if (
+                        navigator.clipboard &&
+                        window.ClipboardItem &&
+                        navigator.clipboard.write
+                      ) {
+                        const item = new ClipboardItem({ 'image/png': blob });
+                        await navigator.clipboard.write([item]);
+                        if (status) {
+                          status.textContent = 'QR copied to clipboard!';
+                          setTimeout(() => (status.textContent = ''), 2000);
+                        }
+                      } else {
+                        // Fallback: download if image clipboard is not supported
+                        downloadPng(blob);
+                        if (status) {
+                          status.textContent = 'Clipboard not supported, downloaded PNG';
+                          setTimeout(() => (status.textContent = ''), 2000);
+                        }
+                      }
+                    } catch (e) {
+                      if (status) status.textContent = 'QR copy failed';
+                    }
+                  });
+                }
+              })();
+            `,
+          }}
+        />
+      </div>
+    )
+  } catch (e) {
+    console.error('Error in /create handler:', e)
+    return c.text('Internal error while creating QR', 500)
+  }
+})
+
+export default app
