@@ -24,12 +24,12 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
 })
 
 // Home page con form
+
 app.get('/', (c) => {
   return c.render(
     <div>
       <h2>Create shortened URL!</h2>
-      /create
-        <input
+      <form action="/create"
           type="text"
           name="url"
           autoComplete="off"
