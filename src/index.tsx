@@ -1,9 +1,10 @@
+
 import { Hono } from 'hono'
 import { csrf } from 'hono/csrf'
 import { renderer } from './renderer'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import QRCode from 'qrcode'
+import QRCode from 'qrcode' // ✅ Import libreria QR
 
 type Bindings = {
   KV: KVNamespace
@@ -15,6 +16,7 @@ const app = new Hono<{
 
 app.all('*', renderer)
 
+// Redirect per URL accorciato
 app.get('/:key{[0-9a-z]{6}}', async (c) => {
   const key = c.req.param('key')
   const url = await c.env.KV.get(key)
@@ -26,15 +28,16 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   return c.redirect(url)
 })
 
+// Pagina iniziale
 app.get('/', (c) => {
   return c.render(
     <div>
       <h2>Create shorten URL!</h2>
-      <form action="/create" method="post">
+      /create
         <input
           type="text"
           name="url"
-          autocomplete="off"
+          autoComplete="off"
           style={{
             width: '80%'
           }}
@@ -55,12 +58,13 @@ const validator = zValidator('form', schema, (result, c) => {
     return c.render(
       <div>
         <h2>Error!</h2>
-        <a href="/">Back to top</a>
+        /Back to top</a>
       </div>
     )
   }
 })
 
+// Funzione per creare chiave unica
 const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   const uuid = crypto.randomUUID()
   const key = uuid.substring(0, 6)
@@ -73,7 +77,7 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   return key
 }
 
-
+// ✅ Handler per creare URL + QR code
 app.post('/create', csrf(), validator, async (c) => {
   const { url } = c.req.valid('form')
   const key = await createKey(c.env.KV, url)
@@ -92,15 +96,17 @@ app.post('/create', csrf(), validator, async (c) => {
         style={{
           width: '80%'
         }}
-        autofocus
+        autoFocus
       />
       <div style={{ marginTop: '20px' }}>
         <h3>QR Code:</h3>
         <img src={qrCodeDataUrl} alt="QR Code" />
       </div>
+      <div style={{ marginTop: '10px' }}>
+        /Back to Home</a>
+      </div>
     </div>
   )
 })
-
 
 export default app
