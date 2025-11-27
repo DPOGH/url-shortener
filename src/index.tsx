@@ -1,4 +1,3 @@
-
 import { Hono } from 'hono'
 import { csrf } from 'hono/csrf'
 import { renderer } from './renderer'
