@@ -21,23 +21,29 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   const key = c.req.param('key')
   const url = await c.env.KV.get(key)
 
-  if (url === null) {
-    // Short URL not found: show message + timed redirect (no links)
-    return c.render(
-      <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-        <h2>Link not found</h2>
-        <p>The link you requested is not reachable anymore.</p>
-        <p>You will be redirected in 10 seconds to iasociety.org.</p>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              setTimeout(function () {
-                window.location.href = 'https://www.iasociety.org';
-              }, 10000);
-            `,
-          }}
-        />
-      </div>,
+    if (url === null) {
+    // Short URL not found: pagina standalone senza layout/header
+    return c.html(
+      `
+      <html>
+        <head>
+          <title>Link not found</title>
+          <meta charset="utf-8" />
+        </head>
+        <body style="background:#000;color:#fff;font-family:sans-serif;">
+          <div style="max-width:600px;margin:60px auto;text-align:center;">
+            <h2>Link not found</h2>
+            <p>The link you requested is not reachable anymore.</p>
+            <p>You will be redirected in 10 seconds to iasociety.org.</p>
+          </div>
+          <script>
+            setTimeout(function () {
+              window.location.href = 'https://www.iasociety.org';
+            }, 10000);
+          </script>
+        </body>
+      </html>
+      `,
       404
     )
   }
@@ -331,23 +337,7 @@ app.get('/history', async (c) => {
                   >
                     Copy URL
                   </button>
-                  <button
-                    type="button"
-                    class="delete-btn"
-                    data-key={item.key}
-                    style={{ marginLeft: '6px' }}
-                  >
-                    Delete
-                  </button>
-                  <button
-                    type="button"
-                    class="qr-open-btn"
-                    data-url={shortUrl}
-                    style={{ marginLeft: '6px' }}
-                  >
-                    QR → new tab
-                  </button>
-                  <button
+                   <button
                     type="button"
                     class="qr-copy-btn"
                     data-url={shortUrl}
@@ -355,6 +345,14 @@ app.get('/history', async (c) => {
                   >
                     Copy QR
                   </button>
+                  <button
+                    type="button"
+                    class="delete-btn"
+                    data-key={item.key}
+                    style={{ marginLeft: '6px' }}
+                  >
+                    Delete
+                  </button>                 
                 </td>
               </tr>
             )
@@ -528,22 +526,6 @@ app.get('/history', async (c) => {
               URL.revokeObjectURL(blobUrl);
             }
 
-            // Open QR in a new tab
-            document.querySelectorAll('.qr-open-btn').forEach((btn) => {
-              btn.addEventListener('click', async () => {
-                const url = btn.getAttribute('data-url');
-                if (!url) return;
-                try {
-                  const blob = await generateQrPngBlob(url);
-                  const blobUrl = URL.createObjectURL(blob);
-                  window.open(blobUrl, '_blank');
-                  setStatus('QR opened');
-                } catch (e) {
-                  setStatus('QR open failed');
-                }
-              });
-            });
-
             // Copy QR to clipboard as PNG (fallback: download)
             document.querySelectorAll('.qr-copy-btn').forEach((btn) => {
               btn.addEventListener('click', async () => {
@@ -652,13 +634,6 @@ app.post('/create', csrf(), validator, async (c) => {
           >
             Copy QR (PNG)
           </button>
-          <button
-            id="download-qr-btn"
-            type="button"
-            style={{ marginLeft: '10px' }}
-          >
-            Download QR (PNG)
-          </button>
           <span
             id="copy-status"
             style={{ marginLeft: '10px', fontSize: '0.9em' }}
@@ -689,7 +664,6 @@ app.post('/create', csrf(), validator, async (c) => {
               (function () {
                 const copyUrlBtn = document.getElementById('copy-url-btn');
                 const copyQrBtn = document.getElementById('copy-qr-btn');
-                const downloadQrBtn = document.getElementById('download-qr-btn');
                 const input = document.getElementById('short-url');
                 const status = document.getElementById('copy-status');
                 const qrContainer = document.getElementById('qr-container');
@@ -765,19 +739,7 @@ app.post('/create', csrf(), validator, async (c) => {
                   document.body.removeChild(a);
                   URL.revokeObjectURL(pngUrl);
                 }
-
-                // Download QR (PNG)
-                if (downloadQrBtn) {
-                  downloadQrBtn.addEventListener('click', async () => {
-                    try {
-                      const blob = await svgToPngBlob();
-                      downloadPng(blob);
-                    } catch (e) {
-                      if (status) status.textContent = 'Download failed';
-                    }
-                  });
-                }
-
+                
                 // Copy QR (PNG) to clipboard (with fallback to download)
                 if (copyQrBtn) {
                   copyQrBtn.addEventListener('click', async () => {
