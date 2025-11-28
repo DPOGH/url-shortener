@@ -38,7 +38,14 @@ app.get('/', (c) => {
           type="text"
           name="url"
           autoComplete="off"
-          style={{ width: '80%' }}
+          style={{
+            width: '80%',
+            padding: '6px 8px',
+            backgroundColor: '#222',
+            color: '#f5f5f5',
+            border: '1px solid #555',
+            borderRadius: '4px'
+          }}
         />
         &nbsp;
         <button type="submit">Create</button>
@@ -47,6 +54,21 @@ app.get('/', (c) => {
       <p style={{ marginTop: '10px' }}>
         <a href="/history">View history</a>
       </p>
+
+      {/* Simple inline focus styles for inputs */}
+      <style>
+        {`
+          input[type="text"],
+          input[type="date"] {
+            outline: none;
+          }
+          input[type="text"]:focus,
+          input[type="date"]:focus {
+            border-color: #00b4d8;
+            box-shadow: 0 0 3px #00b4d8;
+          }
+        `}
+      </style>
     </div>
   )
 })
@@ -134,7 +156,14 @@ app.get('/history', async (c) => {
             id="history-search"
             type="text"
             placeholder="Filter by URL..."
-            style={{ width: '40%' }}
+            style={{
+              width: '40%',
+              padding: '4px 6px',
+              backgroundColor: '#222',
+              color: '#f5f5f5',
+              border: '1px solid #555',
+              borderRadius: '4px'
+            }}
           />
         </label>
         <span style={{ marginLeft: '15px' }}>
@@ -143,6 +172,13 @@ app.get('/history', async (c) => {
             <input
               id="history-from"
               type="date"
+              style={{
+                padding: '3px 4px',
+                backgroundColor: '#222',
+                color: '#f5f5f5',
+                border: '1px solid #555',
+                borderRadius: '4px'
+              }}
             />
           </label>
         </span>
@@ -152,6 +188,13 @@ app.get('/history', async (c) => {
             <input
               id="history-to"
               type="date"
+              style={{
+                padding: '3px 4px',
+                backgroundColor: '#222',
+                color: '#f5f5f5',
+                border: '1px solid #555',
+                borderRadius: '4px'
+              }}
             />
           </label>
         </span>
@@ -169,21 +212,47 @@ app.get('/history', async (c) => {
         style={{
           fontSize: '0.8em',
           borderCollapse: 'collapse',
-          width: '100%'
+          width: '100%',
+          border: '1px solid #555',
+          backgroundColor: '#111'
         }}
       >
         <thead>
           <tr>
-            <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+            <th
+              style={{
+                borderBottom: '1px solid #555',
+                padding: '4px',
+                textAlign: 'left'
+              }}
+            >
               Created at
             </th>
-            <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+            <th
+              style={{
+                borderBottom: '1px solid #555',
+                padding: '4px',
+                textAlign: 'left'
+              }}
+            >
               Original URL
             </th>
-            <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+            <th
+              style={{
+                borderBottom: '1px solid #555',
+                padding: '4px',
+                textAlign: 'left'
+              }}
+            >
               Short URL
             </th>
-            <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+            <th
+              style={{
+                borderBottom: '1px solid #555',
+                padding: '4px',
+                textAlign: 'left'
+              }}
+            >
               Actions
             </th>
           </tr>
@@ -195,21 +264,38 @@ app.get('/history', async (c) => {
               <tr key={item.key}>
                 <td
                   class="created-at-cell"
-                  style={{ padding: '4px', verticalAlign: 'top' }}
+                  style={{
+                    padding: '4px',
+                    verticalAlign: 'top',
+                    borderTop: '1px solid #333'
+                  }}
                 >
                   {item.createdAt}
                 </td>
-                <td style={{ padding: '4px', verticalAlign: 'top' }}>
+                <td
+                  style={{
+                    padding: '4px',
+                    verticalAlign: 'top',
+                    borderTop: '1px solid #333'
+                  }}
+                >
                   <a href={item.url}>{item.url}</a>
                 </td>
-                <td style={{ padding: '4px', verticalAlign: 'top' }}>
+                <td
+                  style={{
+                    padding: '4px',
+                    verticalAlign: 'top',
+                    borderTop: '1px solid #333'
+                  }}
+                >
                   <a href={shortUrl}>{shortUrl}</a>
                 </td>
                 <td
                   style={{
                     padding: '4px',
                     verticalAlign: 'top',
-                    whiteSpace: 'nowrap'
+                    whiteSpace: 'nowrap',
+                    borderTop: '1px solid #333'
                   }}
                 >
                   <button
@@ -248,7 +334,7 @@ app.get('/history', async (c) => {
 
       <p
         id="history-status"
-        style={{ marginTop: '8px', fontSize: '0.8em', color: '#333' }}
+        style={{ marginTop: '8px', fontSize: '0.8em', color: '#ccc' }}
       />
 
       {/* Client-side script for filters, delete and QR actions */}
@@ -290,13 +376,11 @@ app.get('/history', async (c) => {
                 const originalText = (tds[1].textContent || '').toLowerCase();
                 const shortText = (tds[2].textContent || '').toLowerCase();
 
-                // Text match on original or short URL
                 const matchesText =
                   !text ||
                   originalText.includes(text) ||
                   shortText.includes(text);
 
-                // Date match on createdAt (ISO string)
                 let matchesDate = true;
                 if (fromVal || toVal) {
                   const createdDate = new Date(createdAtText);
@@ -304,7 +388,6 @@ app.get('/history', async (c) => {
                     matchesDate = false;
                   }
                   if (toVal) {
-                    // include whole "to" day by adding 1 day and checking <
                     const toEnd = new Date(toVal);
                     toEnd.setDate(toEnd.getDate() + 1);
                     if (createdDate >= toEnd) {
@@ -429,7 +512,6 @@ app.get('/history', async (c) => {
               });
             });
 
-            // Initial filter application (no filters, just to be safe)
             applyFilters();
           })();
         `
@@ -489,7 +571,14 @@ app.post('/create', csrf(), validator, async (c) => {
             id="short-url"
             type="text"
             value={shortUrlStr}
-            style={{ width: '80%' }}
+            style={{
+              width: '80%',
+              padding: '6px 8px',
+              backgroundColor: '#222',
+              color: '#f5f5f5',
+              border: '1px solid #555',
+              borderRadius: '4px'
+            }}
             readOnly
           />
         </div>
@@ -529,9 +618,11 @@ app.post('/create', csrf(), validator, async (c) => {
           />
         </div>
 
-        {/* Back link */}
+        {/* Links */}
         <div style={{ marginTop: '10px' }}>
           <a href="/">Back to Home</a>
+          <span> | </span>
+          <a href="/history">View history</a>
         </div>
 
         {/* Client-side script: copy URL, copy QR PNG, download QR PNG */}
@@ -675,8 +766,7 @@ app.post('/create', csrf(), validator, async (c) => {
 app.post('/history/delete/:key', csrf(), async (c) => {
   const key = c.req.param('key')
   try {
-    // Delete from KV store
-    await c.env.KV.delete(key) // delete() is the standard way to remove a key-value pair from KV. [web:8][web:14][web:47]
+    await c.env.KV.delete(key) // KV delete API. [web:8][web:14]
     await removeFromHistory(c.env.KV, key)
     return c.json({ ok: true })
   } catch (e) {
