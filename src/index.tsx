@@ -22,11 +22,33 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   const url = await c.env.KV.get(key)
 
   if (url === null) {
-    return c.redirect('/')
+    // Short URL not found: show simple message + timed redirect
+    return c.render(
+      <div>
+        <h2>Link not found</h2>
+        <p>The link you requested is not reachable anymore.</p>
+        <p>
+          You will be redirected in 10 seconds to{' '}
+          <a href="https://iasociety.org">iasociety.org</a>.
+        </p>
+
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              setTimeout(function () {
+                window.location.href = 'https://iasociety.org';
+              }, 10000);
+            `,
+          }}
+        />
+      </div>,
+      404
+    )
   }
 
   return c.redirect(url)
 })
+
 
 // Home page with form
 app.get('/', (c) => {
