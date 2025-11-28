@@ -103,6 +103,20 @@ const getHistory = async (kv: KVNamespace): Promise<HistoryItem[]> => {
   }
 }
 
+// Remove single entry from history array
+const removeFromHistory = async (kv: KVNamespace, keyToRemove: string) => {
+  const json = await kv.get(HISTORY_KEY)
+  if (!json) return
+  let list: HistoryItem[]
+  try {
+    list = JSON.parse(json) as HistoryItem[]
+  } catch {
+    return
+  }
+  const filtered = list.filter((item) => item.key !== keyToRemove)
+  await kv.put(HISTORY_KEY, JSON.stringify(filtered))
+}
+
 // History page
 app.get('/history', async (c) => {
   const items = await getHistory(c.env.KV)
@@ -111,34 +125,197 @@ app.get('/history', async (c) => {
     <div>
       <h2>History (latest {items.length} entries)</h2>
       <p>Showing up to 500 latest shortened URLs.</p>
-      <table>
+
+      <table
+        style={{
+          fontSize: '0.8em',
+          borderCollapse: 'collapse',
+          width: '100%'
+        }}
+      >
         <thead>
           <tr>
-            <th>Created at</th>
-            <th>Original URL</th>
-            <th>Short URL</th>
+            <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+              Created at
+            </th>
+            <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+              Original URL
+            </th>
+            <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+              Short URL
+            </th>
+            <th style={{ borderBottom: '1px solid #ccc', padding: '4px' }}>
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody>
           {items.map((item) => {
             const shortUrl = new URL(`/${item.key}`, c.req.url).toString()
             return (
-              <tr>
-                <td>{item.createdAt}</td>
-                <td>
+              <tr key={item.key}>
+                <td style={{ padding: '4px', verticalAlign: 'top' }}>
+                  {item.createdAt}
+                </td>
+                <td style={{ padding: '4px', verticalAlign: 'top' }}>
                   <a href={item.url}>{item.url}</a>
                 </td>
-                <td>
+                <td style={{ padding: '4px', verticalAlign: 'top' }}>
                   <a href={shortUrl}>{shortUrl}</a>
+                </td>
+                <td
+                  style={{
+                    padding: '4px',
+                    verticalAlign: 'top',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <button
+                    type="button"
+                    class="delete-btn"
+                    data-key={item.key}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    class="qr-open-btn"
+                    data-url={shortUrl}
+                    style={{ marginLeft: '6px' }}
+                  >
+                    QR → new tab
+                  </button>
+                  <button
+                    type="button"
+                    class="qr-copy-btn"
+                    data-url={shortUrl}
+                    style={{ marginLeft: '6px' }}
+                  >
+                    Copy QR
+                  </button>
                 </td>
               </tr>
             )
           })}
         </tbody>
       </table>
+
       <p style={{ marginTop: '10px' }}>
         <a href="/">Back to Home</a>
       </p>
+
+      <p
+        id="history-status"
+        style={{ marginTop: '8px', fontSize: '0.8em', color: '#333' }}
+      />
+
+      {/* Client-side script for delete and QR actions in history */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+          (function () {
+            const statusEl = document.getElementById('history-status');
+
+            function setStatus(msg) {
+              if (!statusEl) return;
+              statusEl.textContent = msg;
+              if (msg) {
+                setTimeout(() => { statusEl.textContent = ''; }, 2000);
+              }
+            }
+
+            // Delete single row (KV key + history)
+            document.querySelectorAll('.delete-btn').forEach((btn) => {
+              btn.addEventListener('click', async () => {
+                const key = btn.getAttribute('data-key');
+                if (!key) return;
+                if (!confirm('Delete this short URL?')) return;
+
+                try {
+                  const res = await fetch('/history/delete/' + encodeURIComponent(key), {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    }
+                  });
+                  if (!res.ok) {
+                    setStatus('Delete failed');
+                    return;
+                  }
+                  const tr = btn.closest('tr');
+                  if (tr && tr.parentNode) {
+                    tr.parentNode.removeChild(tr);
+                  }
+                  setStatus('Deleted');
+                } catch (e) {
+                  setStatus('Delete error');
+                }
+              });
+            });
+
+            // Generate QR PNG blob for a given URL using external QR API
+            async function generateQrPngBlob(url) {
+              const apiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(url);
+              const resp = await fetch(apiUrl);
+              if (!resp.ok) throw new Error('QR fetch failed');
+              return await resp.blob();
+            }
+
+            function downloadBlob(blob, filename) {
+              const blobUrl = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = blobUrl;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(blobUrl);
+            }
+
+            // Open QR in a new tab
+            document.querySelectorAll('.qr-open-btn').forEach((btn) => {
+              btn.addEventListener('click', async () => {
+                const url = btn.getAttribute('data-url');
+                if (!url) return;
+                try {
+                  const blob = await generateQrPngBlob(url);
+                  const blobUrl = URL.createObjectURL(blob);
+                  window.open(blobUrl, '_blank');
+                  setStatus('QR opened');
+                } catch (e) {
+                  setStatus('QR open failed');
+                }
+              });
+            });
+
+            // Copy QR to clipboard as PNG (fallback: download)
+            document.querySelectorAll('.qr-copy-btn').forEach((btn) => {
+              btn.addEventListener('click', async () => {
+                const url = btn.getAttribute('data-url');
+                if (!url) return;
+                try {
+                  const blob = await generateQrPngBlob(url);
+                  if (
+                    navigator.clipboard &&
+                    window.ClipboardItem &&
+                    navigator.clipboard.write
+                  ) {
+                    const item = new ClipboardItem({ 'image/png': blob });
+                    await navigator.clipboard.write([item]);
+                    setStatus('QR copied!');
+                  } else {
+                    downloadBlob(blob, 'qr-code.png');
+                    setStatus('Clipboard not supported, downloaded PNG');
+                  }
+                } catch (e) {
+                  setStatus('QR copy failed');
+                }
+              });
+            });
+          })();
+        `
+        }}
+      />
     </div>
   )
 })
@@ -373,6 +550,20 @@ app.post('/create', csrf(), validator, async (c) => {
   } catch (e) {
     console.error('Error in /create handler:', e)
     return c.text('Internal error while creating QR', 500)
+  }
+})
+
+// Delete single entry (KV key + history)
+app.post('/history/delete/:key', csrf(), async (c) => {
+  const key = c.req.param('key')
+  try {
+    // Delete from KV store (no error if key is missing)
+    await c.env.KV.delete(key) // delete() is the standard way to remove a key-value pair from KV. [web:8][web:14]
+    await removeFromHistory(c.env.KV, key)
+    return c.json({ ok: true })
+  } catch (e) {
+    console.error('Error deleting key from history:', e)
+    return c.json({ ok: false, error: 'delete-failed' }, 500)
   }
 })
 
