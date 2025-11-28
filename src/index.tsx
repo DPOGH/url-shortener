@@ -49,10 +49,6 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   return c.redirect(url)
 })
 
-  return c.redirect(url)
-})
-
-
 // Home page with form
 app.get('/', (c) => {
   return c.render(
@@ -807,7 +803,7 @@ app.post('/history/delete/:key', csrf(), async (c) => {
   }
 })
 
-// Global error handler for generic 500 errors
+/// Global error handler for generic 500 errors
 app.onError((err, c) => {
   console.error('Unhandled error:', err)
 
@@ -835,6 +831,5 @@ app.onError((err, c) => {
     500
   )
 })
-
 
 export default app
