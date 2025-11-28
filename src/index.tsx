@@ -634,13 +634,6 @@ app.post('/create', csrf(), validator, async (c) => {
           >
             Copy QR (PNG)
           </button>
-          <button
-            id="download-qr-btn"
-            type="button"
-            style={{ marginLeft: '10px' }}
-          >
-            Download QR (PNG)
-          </button>
           <span
             id="copy-status"
             style={{ marginLeft: '10px', fontSize: '0.9em' }}
@@ -671,7 +664,6 @@ app.post('/create', csrf(), validator, async (c) => {
               (function () {
                 const copyUrlBtn = document.getElementById('copy-url-btn');
                 const copyQrBtn = document.getElementById('copy-qr-btn');
-                const downloadQrBtn = document.getElementById('download-qr-btn');
                 const input = document.getElementById('short-url');
                 const status = document.getElementById('copy-status');
                 const qrContainer = document.getElementById('qr-container');
@@ -747,19 +739,7 @@ app.post('/create', csrf(), validator, async (c) => {
                   document.body.removeChild(a);
                   URL.revokeObjectURL(pngUrl);
                 }
-
-                // Download QR (PNG)
-                if (downloadQrBtn) {
-                  downloadQrBtn.addEventListener('click', async () => {
-                    try {
-                      const blob = await svgToPngBlob();
-                      downloadPng(blob);
-                    } catch (e) {
-                      if (status) status.textContent = 'Download failed';
-                    }
-                  });
-                }
-
+                
                 // Copy QR (PNG) to clipboard (with fallback to download)
                 if (copyQrBtn) {
                   copyQrBtn.addEventListener('click', async () => {
