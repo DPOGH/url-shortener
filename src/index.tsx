@@ -149,63 +149,70 @@ app.get('/history', async (c) => {
       <p>Showing up to 500 latest shortened URLs.</p>
 
       {/* Filters: text + date range */}
-      <div style={{ marginBottom: '10px', fontSize: '0.85em' }}>
-        <label>
-          Search (URL / short URL):{' '}
-          <input
-            id="history-search"
-            type="text"
-            placeholder="Filter by URL..."
-            style={{
-              width: '40%',
-              padding: '4px 6px',
-              backgroundColor: '#222',
-              color: '#f5f5f5',
-              border: '1px solid #555',
-              borderRadius: '4px'
-            }}
-          />
-        </label>
-        <span style={{ marginLeft: '15px' }}>
-          <label>
-            From:{' '}
-            <input
-              id="history-from"
-              type="date"
-              style={{
-                padding: '3px 4px',
-                backgroundColor: '#222',
-                color: '#f5f5f5',
-                border: '1px solid #555',
-                borderRadius: '4px'
-              }}
-            />
-          </label>
-        </span>
-        <span style={{ marginLeft: '10px' }}>
-          <label>
-            To:{' '}
-            <input
-              id="history-to"
-              type="date"
-              style={{
-                padding: '3px 4px',
-                backgroundColor: '#222',
-                color: '#f5f5f5',
-                border: '1px solid #555',
-                borderRadius: '4px'
-              }}
-            />
-          </label>
-        </span>
-        <button
-          id="history-clear-filters"
-          type="button"
-          style={{ marginLeft: '10px' }}
-        >
-          Clear filters
-        </button>
-      </div>
+<div style={{ marginBottom: '10px', fontSize: '0.85em' }}>
+  {/* first row: text search */}
+  <div style={{ marginBottom: '6px' }}>
+    <label>
+      Search (URL / short URL):{' '}
+      <input
+        id="history-search"
+        type="text"
+        placeholder="Filter by URL..."
+        style={{
+          width: '60%',
+          padding: '4px 6px',
+          backgroundColor: '#222',
+          color: '#f5f5f5',
+          border: '1px solid #555',
+          borderRadius: '4px'
+        }}
+      />
+    </label>
+  </div>
+
+  {/* second row: dates + clear */}
+  <div>
+    <span>
+      <label>
+        From:{' '}
+        <input
+          id="history-from"
+          type="date"
+          style={{
+            padding: '3px 4px',
+            backgroundColor: '#222',
+            color: '#f5f5f5',
+            border: '1px solid #555',
+            borderRadius: '4px'
+          }}
+        />
+      </label>
+    </span>
+    <span style={{ marginLeft: '10px' }}>
+      <label>
+        To:{' '}
+        <input
+          id="history-to"
+          type="date"
+          style={{
+            padding: '3px 4px',
+            backgroundColor: '#222',
+            color: '#f5f5f5',
+            border: '1px solid #555',
+            borderRadius: '4px'
+          }}
+        />
+      </label>
+    </span>
+    <button
+      id="history-clear-filters"
+      type="button"
+      style={{ marginLeft: '10px' }}
+    >
+      Clear filters
+    </button>
+  </div>
+</div>
 
       <table
         id="history-table"
