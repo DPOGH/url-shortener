@@ -341,14 +341,6 @@ app.get('/history', async (c) => {
                   </button>
                   <button
                     type="button"
-                    class="qr-open-btn"
-                    data-url={shortUrl}
-                    style={{ marginLeft: '6px' }}
-                  >
-                    QR → new tab
-                  </button>
-                  <button
-                    type="button"
                     class="qr-copy-btn"
                     data-url={shortUrl}
                     style={{ marginLeft: '6px' }}
@@ -527,22 +519,6 @@ app.get('/history', async (c) => {
               document.body.removeChild(a);
               URL.revokeObjectURL(blobUrl);
             }
-
-            // Open QR in a new tab
-            document.querySelectorAll('.qr-open-btn').forEach((btn) => {
-              btn.addEventListener('click', async () => {
-                const url = btn.getAttribute('data-url');
-                if (!url) return;
-                try {
-                  const blob = await generateQrPngBlob(url);
-                  const blobUrl = URL.createObjectURL(blob);
-                  window.open(blobUrl, '_blank');
-                  setStatus('QR opened');
-                } catch (e) {
-                  setStatus('QR open failed');
-                }
-              });
-            });
 
             // Copy QR to clipboard as PNG (fallback: download)
             document.querySelectorAll('.qr-copy-btn').forEach((btn) => {
