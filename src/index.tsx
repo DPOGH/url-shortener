@@ -337,15 +337,7 @@ app.get('/history', async (c) => {
                   >
                     Copy URL
                   </button>
-                  <button
-                    type="button"
-                    class="delete-btn"
-                    data-key={item.key}
-                    style={{ marginLeft: '6px' }}
-                  >
-                    Delete
-                  </button>
-                  <button
+                   <button
                     type="button"
                     class="qr-copy-btn"
                     data-url={shortUrl}
@@ -353,6 +345,14 @@ app.get('/history', async (c) => {
                   >
                     Copy QR
                   </button>
+                  <button
+                    type="button"
+                    class="delete-btn"
+                    data-key={item.key}
+                    style={{ marginLeft: '6px' }}
+                  >
+                    Delete
+                  </button>                 
                 </td>
               </tr>
             )
