@@ -16,27 +16,27 @@ const app = new Hono<{
 // Apply JSX renderer to all routes
 app.all('*', renderer)
 
-// Redirect for shortened URL
+// Redirect for shortened URL (valid 6-char key)
 app.get('/:key{[0-9a-z]{6}}', async (c) => {
   const key = c.req.param('key')
   const url = await c.env.KV.get(key)
 
   if (url === null) {
-    // Short URL not found: show simple message + timed redirect
+    // Short URL not found: show message + timed redirect
     return c.render(
       <div>
         <h2>Link not found</h2>
         <p>The link you requested is not reachable anymore.</p>
         <p>
           You will be redirected in 10 seconds to{' '}
-          <a href="https://iasociety.org">iasociety.org</a>.
+          <a href="https://www.iasociety.org">iasociety.org</a>.
         </p>
 
         <script
           dangerouslySetInnerHTML={{
             __html: `
               setTimeout(function () {
-                window.location.href = 'https://iasociety.org';
+                window.location.href = 'https://www.iasociety.org';
               }, 10000);
             `,
           }}
@@ -45,6 +45,9 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
       404
     )
   }
+
+  return c.redirect(url)
+})
 
   return c.redirect(url)
 })
@@ -803,5 +806,35 @@ app.post('/history/delete/:key', csrf(), async (c) => {
     return c.json({ ok: false, error: 'delete-failed' }, 500)
   }
 })
+
+// Global error handler for generic 500 errors
+app.onError((err, c) => {
+  console.error('Unhandled error:', err)
+
+  return c.html(
+    `
+      <html>
+        <head>
+          <title>Page not found</title>
+          <meta charset="utf-8" />
+        </head>
+        <body style="background:#000;color:#fff;font-family:sans-serif;">
+          <div style="max-width:600px;margin:60px auto;text-align:center;">
+            <h2>Page not found</h2>
+            <p>An unexpected error occurred or the page you requested is not available.</p>
+            <p>You will be redirected shortly to <a href="https://www.iasociety.org" style="color:#4ea8de;">iasociety.org</a>.</p>
+          </div>
+          <script>
+            setTimeout(function () {
+              window.location.href = 'https://www.iasociety.org';
+            }, 10000);
+          </script>
+        </body>
+      </html>
+    `,
+    500
+  )
+})
+
 
 export default app
