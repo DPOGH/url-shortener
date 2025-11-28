@@ -22,16 +22,12 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   const url = await c.env.KV.get(key)
 
   if (url === null) {
-    // Short URL not found: show message + timed redirect
+    // Short URL not found: show message + timed redirect (no links)
     return c.render(
-      <div>
+      <div style={{ textAlign: 'center', padding: '40px 20px' }}>
         <h2>Link not found</h2>
         <p>The link you requested is not reachable anymore.</p>
-        <p>
-          You will be redirected in 10 seconds to{' '}
-          <a href="https://www.iasociety.org">iasociety.org</a>.
-        </p>
-
+        <p>You will be redirected in 10 seconds to iasociety.org.</p>
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -59,6 +55,7 @@ app.get('/', (c) => {
           type="text"
           name="url"
           autoComplete="off"
+          placeholder="Enter URL to shorten..."
           style={{
             width: '80%',
             padding: '6px 8px',
@@ -76,7 +73,7 @@ app.get('/', (c) => {
         <a href="/history">View history</a>
       </p>
 
-      {/* Simple inline focus styles for inputs */}
+      {/* Focus styles for inputs */}
       <style>
         {`
           input[type="text"],
@@ -104,6 +101,7 @@ const validator = zValidator('form', schema, (result, c) => {
     return c.render(
       <div>
         <h2>Error!</h2>
+        <p>Invalid URL format. Please check and try again.</p>
         <a href="/">Back to top</a>
       </div>
     )
@@ -170,70 +168,70 @@ app.get('/history', async (c) => {
       <p>Showing up to 500 latest shortened URLs.</p>
 
       {/* Filters: text + date range */}
-<div style={{ marginBottom: '10px', fontSize: '0.85em' }}>
-  {/* first row: text search */}
-  <div style={{ marginBottom: '6px' }}>
-    <label>
-      Search (URL / short URL):{' '}
-      <input
-        id="history-search"
-        type="text"
-        placeholder="Filter by URL..."
-        style={{
-          width: '60%',
-          padding: '4px 6px',
-          backgroundColor: '#222',
-          color: '#f5f5f5',
-          border: '1px solid #555',
-          borderRadius: '4px'
-        }}
-      />
-    </label>
-  </div>
+      <div style={{ marginBottom: '10px', fontSize: '0.85em' }}>
+        {/* first row: text search */}
+        <div style={{ marginBottom: '6px' }}>
+          <label>
+            Search (URL / short URL):{' '}
+            <input
+              id="history-search"
+              type="text"
+              placeholder="Filter by URL..."
+              style={{
+                width: '60%',
+                padding: '4px 6px',
+                backgroundColor: '#222',
+                color: '#f5f5f5',
+                border: '1px solid #555',
+                borderRadius: '4px'
+              }}
+            />
+          </label>
+        </div>
 
-  {/* second row: dates + clear */}
-  <div>
-    <span>
-      <label>
-        From:{' '}
-        <input
-          id="history-from"
-          type="date"
-          style={{
-            padding: '3px 4px',
-            backgroundColor: '#222',
-            color: '#f5f5f5',
-            border: '1px solid #555',
-            borderRadius: '4px'
-          }}
-        />
-      </label>
-    </span>
-    <span style={{ marginLeft: '10px' }}>
-      <label>
-        To:{' '}
-        <input
-          id="history-to"
-          type="date"
-          style={{
-            padding: '3px 4px',
-            backgroundColor: '#222',
-            color: '#f5f5f5',
-            border: '1px solid #555',
-            borderRadius: '4px'
-          }}
-        />
-      </label>
-    </span>
-    <button
-      id="history-clear-filters"
-      type="button"
-      style={{ marginLeft: '10px' }}
-    >
-      Clear filters
-    </button>
-  </div>
-</div>
+        {/* second row: dates + clear */}
+        <div>
+          <span>
+            <label>
+              From:{' '}
+              <input
+                id="history-from"
+                type="date"
+                style={{
+                  padding: '3px 4px',
+                  backgroundColor: '#222',
+                  color: '#f5f5f5',
+                  border: '1px solid #555',
+                  borderRadius: '4px'
+                }}
+              />
+            </label>
+          </span>
+          <span style={{ marginLeft: '10px' }}>
+            <label>
+              To:{' '}
+              <input
+                id="history-to"
+                type="date"
+                style={{
+                  padding: '3px 4px',
+                  backgroundColor: '#222',
+                  color: '#f5f5f5',
+                  border: '1px solid #555',
+                  borderRadius: '4px'
+                }}
+              />
+            </label>
+          </span>
+          <button
+            id="history-clear-filters"
+            type="button"
+            style={{ marginLeft: '10px' }}
+          >
+            Clear filters
+          </button>
+        </div>
+      </div>
 
       <table
         id="history-table"
@@ -328,8 +326,16 @@ app.get('/history', async (c) => {
                 >
                   <button
                     type="button"
+                    class="copy-short-btn"
+                    data-url={shortUrl}
+                  >
+                    Copy URL
+                  </button>
+                  <button
+                    type="button"
                     class="delete-btn"
                     data-key={item.key}
+                    style={{ marginLeft: '6px' }}
                   >
                     Delete
                   </button>
@@ -365,7 +371,7 @@ app.get('/history', async (c) => {
         style={{ marginTop: '8px', fontSize: '0.8em', color: '#ccc' }}
       />
 
-      {/* Client-side script for filters, delete and QR actions */}
+      {/* Client-side script for filters, copy, delete and QR actions */}
       <script
         dangerouslySetInnerHTML={{
           __html: `
@@ -449,6 +455,29 @@ app.get('/history', async (c) => {
                 applyFilters();
               });
             }
+
+            // Copy short URL to clipboard
+            document.querySelectorAll('.copy-short-btn').forEach((btn) => {
+              btn.addEventListener('click', async () => {
+                const url = btn.getAttribute('data-url');
+                if (!url) return;
+                try {
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(url);
+                  } else {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = url;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                  }
+                  setStatus('Short URL copied!');
+                } catch (e) {
+                  setStatus('Copy failed');
+                }
+              });
+            });
 
             // Delete single row (KV key + history)
             document.querySelectorAll('.delete-btn').forEach((btn) => {
@@ -542,7 +571,7 @@ app.get('/history', async (c) => {
 
             applyFilters();
           })();
-        `
+        `,
         }}
       />
     </div>
@@ -552,14 +581,14 @@ app.get('/history', async (c) => {
 // Generate unique key and store URL in KV
 const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   const uuid = crypto.randomUUID()
-  const key = uuid.substring(0, 6)
+  const key = uuid.substring(0, 6).toLowerCase()
   const result = await kv.get(key)
   if (!result) {
     await kv.put(key, url)
+    return key
   } else {
     return await createKey(kv, url)
   }
-  return key
 }
 
 // Create shortened URL + QR (SVG 200px) + copy & PNG buttons
@@ -786,7 +815,7 @@ app.post('/create', csrf(), validator, async (c) => {
     )
   } catch (e) {
     console.error('Error in /create handler:', e)
-    return c.text('Internal error while creating QR', 500)
+    throw e // Let global error handler catch this
   }
 })
 
@@ -794,7 +823,7 @@ app.post('/create', csrf(), validator, async (c) => {
 app.post('/history/delete/:key', csrf(), async (c) => {
   const key = c.req.param('key')
   try {
-    await c.env.KV.delete(key) // KV delete API. [web:8][web:14]
+    await c.env.KV.delete(key)
     await removeFromHistory(c.env.KV, key)
     return c.json({ ok: true })
   } catch (e) {
@@ -803,7 +832,7 @@ app.post('/history/delete/:key', csrf(), async (c) => {
   }
 })
 
-/// Global error handler for generic 500 errors
+// Global error handler for generic 500 errors (no links, just redirect)
 app.onError((err, c) => {
   console.error('Unhandled error:', err)
 
@@ -818,7 +847,7 @@ app.onError((err, c) => {
           <div style="max-width:600px;margin:60px auto;text-align:center;">
             <h2>Page not found</h2>
             <p>An unexpected error occurred or the page you requested is not available.</p>
-            <p>You will be redirected shortly to <a href="https://www.iasociety.org" style="color:#4ea8de;">iasociety.org</a>.</p>
+            <p>You will be redirected shortly to iasociety.org.</p>
           </div>
           <script>
             setTimeout(function () {
