@@ -51,12 +51,22 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   return c.redirect(url)
 })
 
+// Redirect root / to /admin/
+app.get("/", (c) => {
+  return c.redirect("/admin/");
+});
+
+// Redirect /admin to /admin/
+app.get("/admin", (c) => {
+  return c.redirect("/admin/");
+});
+
 // Home page with form
-app.get('/', (c) => {
+app.get('/admin/', (c) => {
   return c.render(
     <div>
       <h2>Create shortened URL!</h2>
-      <form action="/create" method="post">
+      <form action="/admin/create" method="post">
         <input
           type="text"
           name="url"
@@ -76,7 +86,7 @@ app.get('/', (c) => {
       </form>
 
       <p style={{ marginTop: '10px' }}>
-        <a href="/history">View history</a>
+        <a href="/admin/history">View history</a>
       </p>
 
       {/* Focus styles for inputs */}
@@ -165,7 +175,7 @@ const removeFromHistory = async (kv: KVNamespace, keyToRemove: string) => {
 }
 
 // History page with filters
-app.get('/history', async (c) => {
+app.get('/admin/history', async (c) => {
   const items = await getHistory(c.env.KV)
 
   return c.render(
@@ -485,7 +495,7 @@ app.get('/history', async (c) => {
                 if (!confirm('Delete this short URL?')) return;
 
                 try {
-                  const res = await fetch('/history/delete/' + encodeURIComponent(key), {
+                  const res = await fetch('/admin/history/delete/' + encodeURIComponent(key), {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json'
@@ -574,7 +584,7 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
 }
 
 // Create shortened URL + QR (SVG 200px) + copy & PNG buttons
-app.post('/create', csrf(), validator, async (c) => {
+app.post('/admin/create', csrf(), validator, async (c) => {
   try {
     const { url } = c.req.valid('form')
     const key = await createKey(c.env.KV, url)
@@ -654,7 +664,7 @@ app.post('/create', csrf(), validator, async (c) => {
         <div style={{ marginTop: '10px' }}>
           <a href="/">Back to Home</a>
           <span> | </span>
-          <a href="/history">View history</a>
+          <a href="/admin/history">View history</a>
         </div>
 
         {/* Client-side script: copy URL, copy QR PNG, download QR PNG */}
@@ -776,13 +786,13 @@ app.post('/create', csrf(), validator, async (c) => {
       </div>
     )
   } catch (e) {
-    console.error('Error in /create handler:', e)
+    console.error('Error in /admin/create handler:', e)
     throw e // Let global error handler catch this
   }
 })
 
 // Delete single entry (KV key + history)
-app.post('/history/delete/:key', csrf(), async (c) => {
+app.post('/admin/history/delete/:key', csrf(), async (c) => {
   const key = c.req.param('key')
   try {
     await c.env.KV.delete(key)
