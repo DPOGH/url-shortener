@@ -56,7 +56,7 @@ app.get('/admin/', (c) => {
   return c.render(
     <div>
       <h2>Create shortened URL!</h2>
-      <form action="/create" method="post">
+      <form action="/admin/create" method="post">
         <input
           type="text"
           name="url"
@@ -76,7 +76,7 @@ app.get('/admin/', (c) => {
       </form>
 
       <p style={{ marginTop: '10px' }}>
-        <a href="/history">View history</a>
+        <a href="/admin/history">View history</a>
       </p>
 
       {/* Focus styles for inputs */}
@@ -485,7 +485,7 @@ app.get('/admin/history', async (c) => {
                 if (!confirm('Delete this short URL?')) return;
 
                 try {
-                  const res = await fetch('/history/delete/' + encodeURIComponent(key), {
+                  const res = await fetch('/admin/history/delete/' + encodeURIComponent(key), {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json'
@@ -654,7 +654,7 @@ app.post('/admin/create', csrf(), validator, async (c) => {
         <div style={{ marginTop: '10px' }}>
           <a href="/">Back to Home</a>
           <span> | </span>
-          <a href="/history">View history</a>
+          <a href="/admin/history">View history</a>
         </div>
 
         {/* Client-side script: copy URL, copy QR PNG, download QR PNG */}
@@ -776,7 +776,7 @@ app.post('/admin/create', csrf(), validator, async (c) => {
       </div>
     )
   } catch (e) {
-    console.error('Error in /create handler:', e)
+    console.error('Error in /admin/create handler:', e)
     throw e // Let global error handler catch this
   }
 })
