@@ -51,6 +51,16 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
   return c.redirect(url)
 })
 
+// Redirect root / to /admin/
+app.get("/", (c) => {
+  return c.redirect("/admin/");
+});
+
+// Redirect /admin to /admin/
+app.get("/admin", (c) => {
+  return c.redirect("/admin/");
+});
+
 // Home page with form
 app.get('/admin/', (c) => {
   return c.render(
