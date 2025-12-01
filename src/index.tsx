@@ -52,7 +52,7 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
 })
 
 // Home page with form
-app.get('/', (c) => {
+app.get('/admin/', (c) => {
   return c.render(
     <div>
       <h2>Create shortened URL!</h2>
@@ -165,7 +165,7 @@ const removeFromHistory = async (kv: KVNamespace, keyToRemove: string) => {
 }
 
 // History page with filters
-app.get('/history', async (c) => {
+app.get('/admin/history', async (c) => {
   const items = await getHistory(c.env.KV)
 
   return c.render(
@@ -574,7 +574,7 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
 }
 
 // Create shortened URL + QR (SVG 200px) + copy & PNG buttons
-app.post('/create', csrf(), validator, async (c) => {
+app.post('/admin/create', csrf(), validator, async (c) => {
   try {
     const { url } = c.req.valid('form')
     const key = await createKey(c.env.KV, url)
@@ -782,7 +782,7 @@ app.post('/create', csrf(), validator, async (c) => {
 })
 
 // Delete single entry (KV key + history)
-app.post('/history/delete/:key', csrf(), async (c) => {
+app.post('/admin/history/delete/:key', csrf(), async (c) => {
   const key = c.req.param('key')
   try {
     await c.env.KV.delete(key)
