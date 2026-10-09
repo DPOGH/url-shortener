@@ -175,6 +175,7 @@ const rateLimit = (
           429
         )
       }
+      c.status(429)
       return c.render(
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
           <Semaphore color="red" />
@@ -187,8 +188,7 @@ const rateLimit = (
               <a href="/admin/">Back to admin</a>
             </p>
           </div>
-        </div>,
-        undefined
+        </div>
       )
     }
 
