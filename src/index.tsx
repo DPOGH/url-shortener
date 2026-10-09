@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import QRCode from 'qrcode'
 import styles from './style.css?raw'
+import iasLogo from './ias-logo.svg?raw'
 
 type Bindings = {
   KV: KVNamespace
@@ -58,6 +59,13 @@ app.use('*', async (c, next) => {
 
 // Apply JSX renderer to all routes
 app.all('*', renderer)
+
+app.get('/assets/ias-logo.svg', (c) => {
+  return c.body(iasLogo, 200, {
+    'Content-Type': 'image/svg+xml; charset=utf-8',
+    'Cache-Control': 'public, max-age=86400'
+  })
+})
 
 const SHORT_KEY_RE = /^[0-9a-z]{6}$/
 
@@ -219,6 +227,12 @@ const standaloneStatusPage = (opts: {
   </head>
   <body>
     <div class="standalone-status">
+      <a class="standalone-brand" href="/admin/" aria-label="IAS URL Shortener home">
+        <span class="brand-logo">
+          <img src="/assets/ias-logo.svg" alt="International AIDS Society" width="155" height="57" />
+        </span>
+        <span class="brand-title">URL Shortener</span>
+      </a>
       <div class="semaphore semaphore-large" role="img" aria-label="${opts.color}" title="${opts.color}">
         <span class="semaphore-light red ${opts.color === 'red' ? 'active' : ''}"></span>
         <span class="semaphore-light yellow ${opts.color === 'yellow' ? 'active' : ''}"></span>
@@ -361,6 +375,7 @@ app.get('/admin/', (c) => {
             name="url"
             autoComplete="off"
             placeholder="https://example.com/..."
+            value="https://"
             required
             class="url-input"
           />
