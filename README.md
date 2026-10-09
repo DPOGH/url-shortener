@@ -1,420 +1,409 @@
-# Creating URL Shortener with Cloudflare Pages
+# IAS URL Shortener
 
-Let's create a super simple URL Shortener with Cloudflare Pages!
-By creating this application you will experience:
+Internal URL-shortening service for IAS, deployed on Cloudflare and available at
+[toias.link](https://toias.link).
 
-- Creating web pages with Hono.
-- Using Cloudflare KV in your application.
-- Deploying your application to Cloudflare Pages.
+The administration interface is protected by Cloudflare Access with Microsoft
+Entra ID. Short URLs are intentionally public so recipients can follow them
+without authenticating.
 
-## The application feature
+## Contents
 
-- Developing with Vite.
-- Having UI.
-- The main code is less than 100 lines.
-- Validation with Zod.
-- Handling validation error.
-- CSRF Protection.
+- [How it works](#how-it-works)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Access model](#access-model)
+- [Local development](#local-development)
+- [Configuration](#configuration)
+- [Deployment](#deployment)
+- [Data model](#data-model)
+- [Security](#security)
+- [Operations](#operations)
+- [Troubleshooting](#troubleshooting)
+- [License and attribution](#license-and-attribution)
 
-## Demo
+## How it works
 
-![Demo](https://github.com/yusukebe/url-shortener/assets/10682/aab18332-b38e-4425-a5f8-e25b71fa9168)
+1. An authorized user opens `https://toias.link/admin/`.
+2. Cloudflare Access authenticates the user through Microsoft Entra ID.
+3. The user submits an HTTP or HTTPS destination.
+4. The Worker verifies that the destination is reachable and safe to probe.
+5. A random six-character key is stored in Cloudflare KV.
+6. `https://toias.link/<key>` redirects publicly to the stored destination.
 
-## Source Code
+Example:
 
-You can see the entire source code here.
-
-## Tutorial
-
-I'll show you how to create your application!
-
----
-
-## Account
-
-To deploy an application to Cloudflare Pages, a Cloudflare account is needed. Since it can be used within the free tier, if you don't have an account, please create one.
-
-## Project Setup
-
-Let's start by setting up the project.
-
-### Initial Project
-
-We'll use a CLI called "_create-hono_" to create the project. Execute the following command:
-
-```txt
-npm create hono@latest url-shortener
+```text
+https://toias.link/002b15
 ```
 
-When prompted to choose a template, select "**_cloudflare-pages_**". Then, when asked about installing dependencies and which package manager to use, press Enter to proceed.
+Existing six-character links remain valid indefinitely unless an administrator
+deletes them. The application does not apply a TTL or automatic expiration to
+links or History.
 
-Now, you have your initial project setup. Enter the project directory:
+## Features
 
-```txt
+- Six-character short URLs
+- Cloudflare KV persistence
+- Destination reachability validation before creation
+- QR generation without third-party QR services
+- History with search and date filters
+- Destination health indicator in History
+- Persistent create/delete audit log
+- Copy URL and QR actions
+- Explicit error states and missing-link countdown redirect
+- Weekly Dependabot update checks
+
+## Architecture
+
+```text
+Browser
+  |
+  +-- /admin/* ----------------> Cloudflare Access (Entra ID)
+  |                                  |
+  |                                  v
+  |                            Hono application
+  |                                  |
+  |                                  v
+  |                            Cloudflare KV
+  |
+  +-- /<six-character-key> ----> Public Worker route ----> Destination
+```
+
+Main components:
+
+| Component | Purpose |
+| --- | --- |
+| Hono | HTTP routing and JSX rendering |
+| Zod / Hono Zod Validator | Form validation |
+| QRCode | Local SVG/PNG QR generation |
+| Vite | Production build and local development |
+| Wrangler | Cloudflare local preview and manual deployment |
+| Cloudflare KV | Links, History, audit events, and rate-limit counters |
+| Cloudflare Access | Entra ID authentication for administration |
+
+The application is implemented primarily in `src/index.tsx`. Shared page markup
+is in `src/renderer.tsx`, and all styling is local in `src/style.css`.
+
+## Access model
+
+The Cloudflare Zero Trust configuration is external to this repository.
+
+Expected policies:
+
+| Path | Access |
+| --- | --- |
+| `/admin/*` | Entra ID authentication; IAS-authorized users only |
+| `/<six-character-key>` | Public bypass |
+
+The root path redirects to `/admin/`.
+
+`workers.dev` and Cloudflare version-preview URLs are disabled in
+`wrangler.toml`. This prevents alternate Worker hostnames from bypassing the
+Access policy attached to `toias.link`.
+
+When changing Cloudflare routes or Access applications, verify both:
+
+```bash
+curl -I https://toias.link/admin/
+curl -I https://toias.link/zzzzzz
+```
+
+The first request should redirect to Cloudflare Access when unauthenticated.
+The second should return the application's missing-link page.
+
+## Local development
+
+### Requirements
+
+- Node.js 22.12 or newer
+- npm
+- A network connection for destination checks and Cloudflare tooling
+
+### Install
+
+```bash
+git clone https://github.com/DPOGH/url-shortener.git
 cd url-shortener
+npm ci
 ```
 
-### Start the Development Server
+`package-lock.json` is committed and should remain committed so local and
+Cloudflare builds resolve the same dependency versions.
 
-Let's start the development server. It's easy, just run the following command:
+### Development server
 
-```txt
+For quick UI development:
+
+```bash
 npm run dev
 ```
 
-By default, it launches at `http://localhost:5173`, so access it. You should be able to see the page.
+Open `http://localhost:5173`.
 
-### Create KV
+For a Worker-compatible preview with a local KV emulator:
 
-This app uses Cloudflare KV, a Key-Value store. To use it, you need to create a KV project by running the following command:
-
-```txt
-npm exec wrangler kv namespace create KV
+```bash
+npm run build
+npm run preview
 ```
 
-You'll see a message like this:
+Wrangler normally listens on `http://localhost:8788`.
 
-```txt
-🌀 Creating namespace with title "url-shortener-KV"
-✨ Success!
-Add the following to your configuration file in your kv_namespaces array:
-{ binding = "KV", id = "xxxxxx" }
+Local KV data is separate from production KV data.
+
+### Validation commands
+
+Run these before opening a pull request:
+
+```bash
+npm ci
+npm run build
+npm audit --audit-level=low
 ```
 
-Copy the `id` value `xxxxxx`, and write it into `wrangler.toml` in the format shown above.
+There is currently no standalone automated test suite. Cloudflare Workers
+Builds performs the required pull-request build check.
 
-### Install Dependencies
+## Configuration
 
-For this app, we'll validate input values. For that, we'll include the Zod library and Hono middleware.
+Cloudflare configuration lives in `wrangler.toml`.
 
-```txt
-npm i zod @hono/zod-validator
+Required binding:
+
+| Binding | Type | Purpose |
+| --- | --- | --- |
+| `KV` | KV namespace | Link and application data |
+
+Important settings:
+
+```toml
+workers_dev = false
+preview_urls = false
 ```
 
-### Remove `public`
+Do not commit Cloudflare API tokens, Access credentials, local `.dev.vars`, or
+other secrets. `.dev.vars` is ignored by Git.
 
-Finally, the starter template includes a `public` directory with CSS for customization, but since we won't use it this time, let's remove it.
+Cloudflare Access policies, Entra ID configuration, the custom domain, and the
+GitHub integration are managed in the Cloudflare dashboard.
 
-```txt
-rm -rf public
-```
+## Deployment
 
-## Writing Code
+Production deployment is connected to GitHub through Cloudflare Workers Builds.
 
-Now, let's start coding.
+Normal workflow:
 
-### Organize Layout
+1. Create a branch.
+2. Open a pull request into `main`.
+3. Wait for `Workers Builds: url-shortener` to pass.
+4. Review and merge the pull request.
+5. Cloudflare builds and deploys `main` automatically.
+6. Verify `toias.link`.
 
-We'll arrange a common layout for the pages by editing `src/renderer.tsx`.
+Do not merge when the Cloudflare build check fails.
 
-To save time, we'll use a CSS framework called [new.css](https://newcss.net/), which is a _class-less_ framework. This means you don't need to specify any special `class` values; the existing HTML styles will automatically look good.
+Manual deployment is available only for an authenticated operator:
 
-The final version will look like this:
-
-```tsx
-import { jsxRenderer } from 'hono/jsx-renderer'
-
-export const renderer = jsxRenderer(({ children }) => {
-  return (
-    <html>
-      <head>
-        <link rel="stylesheet" href="https://fonts.xz.style/serve/inter.css" />
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@exampledev/new.css@1.1.2/new.min.css"></link>
-      </head>
-      <body>
-        <header>
-          <h1>
-            <a href="/">URL Shortener</a>
-          </h1>
-        </header>
-        <div>{children}</div>
-      </body>
-    </html>
-  )
-})
-```
-
-### Making the Home Page
-
-First, we're making a home page. It responds when someone visits the root path `/`. Here's how we set it up.
-
-```ts
-app.get('/', (c) => {
-  //...
-})
-```
-
-Inside the handler, we use `c.render()` to return HTML with our layout applied. We've set it up to send a POST request to `/create` to make a short URL.  Edit `src/index.tsx` with this:
-
-```tsx
-app.get('/', (c) => {
-  return c.render(
-    <div>
-      <h2>Create shortened URL!</h2>
-      <form action="/create" method="post">
-        <input
-          type="text"
-          name="url"
-          autocomplete="off"
-          style={{
-            width: '80%'
-          }}
-        />
-        &nbsp;
-        <button type="submit">Create</button>
-      </form>
-    </div>
-  )
-})
-```
-
-This will look something like this:
-
-![Screenshot](https://github.com/yusukebe/url-shortener/assets/10682/64bf3e39-8792-49e9-95ef-1f0bb813f2a8)
-
-### Making a Validator
-
-We want to check the form data from the top page. So, let's make a validator.
-
-First, we import stuff from the library we installed earlier.
-
-```ts
-import { z } from 'zod'
-import { zValidator } from '@hono/zod-validator'
-```
-
-Then, we make a schema. This is how we say, "We want a string that's a URL named `url`".
-
-```ts
-const schema = z.object({
-  url: z.string().url()
-})
-```
-
-We register this with `zValidator`. The `form` we pass as the first argument is because we want to handle form requests.
-
-```ts
-const validator = zValidator('form', schema)
-```
-
-Let's make an endpoint to handle the POST request to `/create` using our finished validator. Since a validators is middleware, we can put it before our handler. Then, we use `c.req.valid()` to get the value, which in this case, is named `url`.
-
-```ts
-app.post('/create', validator, async (c) => {
-  const { url } = c.req.valid('form')
-
-  // TODO: Create a short URL
-})
-```
-
-If it passes the check, the value will be in `url`.
-
-### Defining KV Types
-
-Now that we have the form value, let's write the logic to make a short URL.
-
-First, we define the types for KV we're using. `KVNamespace` represents KV. In Hono, if you pass `Bindings` as a name for Cloudflare's Bindings type to the Hono class generics, you can then access `c.env.KV` with types.
-
-```ts
-type Bindings = {
-  KV: KVNamespace
-}
-
-const app = new Hono<{
-  Bindings: Bindings
-}>()
-```
-
-### Generating and Saving Keys
-
-Let's make a function named `createKey()` to generate keys for short URLs. We need the KV object and the URL to generate a key.
-
-```ts
-app.post('/create', validator, async (c) => {
-  const { url } = c.req.valid('form')
-
-  const key = await createKey(c.env.KV, url)
-
-  // ...
-})
-```
-
-There are a few strategies for generating an unique key, but we'll go with this:
-
-- Create a random string.
-- Use 6 characters of it.
-- If there's no object in KV with that key, save the URL as its value.
-- If there is, run `createKey()` again.
-- Return the created key.
-
-You can get and set values in KV with `kv.get(key)` and `kv.put(key, value)`.
-
-The finished function looks like this:
-
-```ts
-const createKey = async (kv: KVNamespace, url: string) => {
-  const uuid = crypto.randomUUID()
-  const key = uuid.substring(0, 6)
-  const result = await kv.get(key)
-  if (!result) {
-    await kv.put(key, url)
-  } else {
-    return await createKey(kv, url)
-  }
-  return key
-}
-```
-
-### Showing the Result
-
-Now we've made a key. The URL with this key as the pathname is our short URL. If you're developing locally and your key was, for example, `abcdef`, it would be:
-
-```txt
-http://localhost:5173/abcdef
-```
-
-We made a page to display this URL in an `input` element for easy copying, using `autofocus` too.
-
-```tsx
-app.post('/create', validator, async (c) => {
-  const { url } = c.req.valid('form')
-  const key = await createKey(c.env.KV, url)
-
-  const shortenUrl = new URL(`/${key}`, c.req.url)
-
-  return c.render(
-    <div>
-      <h2>Created!</h2>
-      <input
-        type="text"
-        value={shortenUrl.toString()}
-        style={{
-          width: '80%'
-        }}
-        autofocus
-      />
-    </div>
-  )
-})
-```
-
-Now, the short URL is created and displayed nicely.
-
-![Screenshot](https://github.com/yusukebe/url-shortener/assets/10682/2eda47a4-8adb-460a-8432-289a00a36779)
-
-### Redirecting
-
-Now that we can generate short URLs, let's make them redirect to the registered URL. We use regex to match the address like `/abcdef` and, in the handler, get the value from KV using that string as the key. If it exists, that's the original URL, and we redirect there. If not, we go back to the top page.
-
-```ts
-app.get('/:key{[0-9a-z]{6}}', async (c) => {
-  the key = c.req.param('key')
-  const url = await c.env.KV.get(key)
-
-  if (url === null) {
-    return c.redirect('/')
-  }
-
-  return c.redirect(url)
-})
-```
-
-### Handling Errors
-
-We're almost done, and it's looking good!
-
-But one issue is what happens if someone puts a non-URL value in the form. The validator catches the error, but it just shows a string of JSON.
-
-![Screenshot](https://github.com/yusukebe/url-shortener/assets/10682/c8d809eb-4374-40d0-9745-b00a020410b3)
-
-Let's show an error page instead. For this, we write a hook as the third argument to `zValidator`. `result` is the result object from Zod validation, so we use it to decide what to do based on whether it was successful.
-
-```tsx
-const validator = zValidator('form', schema, (result, c) => {
-  if (!result.success) {
-    return c.render(
-      <div>
-        <h2>Error!</h2>
-        <a href="/">Back to top</a>
-      </div>
-    )
-  }
-})
-```
-
-Now, if there's a validation error, an error message is shown.
-
-![Screenshot](https://github.com/yusukebe/url-shortener/assets/10682/e8c5e93a-feaa-4c61-b54a-b786ee9e83c2)
-
-#### Adding a CSRF Protector
-
-This is the last step! Our URL shortening service is pretty great as it is, but there's a chance someone could send a POST request directly from a form on a different site. So, we use Hono's built-in middleware, [CSRF Protector](https://hono.dev/middleware/builtin/csrf).
-
-It's super easy to use. Just import it.
-
-```ts
-import { csrf } from 'hono/csrf'
-```
-
-And use it before the handler on routes where you want it.
-
-```ts
-app.post('/create', csrf(), validator, async (c) => {
-  const { url } = c.req.valid('form')
-  const key = await createKey(c.env.KV, url)
-  //...
-})
-```
-
-And that's it! You've made a URL shortening app with a UI, validation, error handling, and CSRF protection, all within about 100 lines in `index.tsx`!
-
-## Deploying
-
-Let's deploy to Cloudflare Pages. Run the following command:
-
-```txt
+```bash
 npm run deploy
 ```
 
-If it's your first time, you'll be asked a few questions like this. Just answer them:
+This requires a Cloudflare login or a suitable `CLOUDFLARE_API_TOKEN`. The
+GitHub-connected deployment is the preferred production path.
 
-```txt
-Create a new project
-? Enter the name of your new project: › url-shortener
+## Data model
+
+The service uses one KV namespace.
+
+| Key | Value |
+| --- | --- |
+| `<six-character-key>` | Destination URL |
+| `__history__` | Latest 500 active/history records |
+| `__audit__` | Latest 1000 create/delete audit events |
+| `__rate__:*` | Temporary rate-limit counters |
+
+History records include:
+
+- short key;
+- destination URL;
+- creation timestamp;
+- authenticated creator, when available.
+
+Records created before identity logging display `legacy / unknown`.
+
+Audit records include:
+
+- action (`create` or `delete`);
+- short key;
+- original URL, when available;
+- authenticated user;
+- timestamp.
+
+Audit events are also written as structured Worker logs. Audit and History have
+count limits but no time-based expiration.
+
+Cloudflare KV is eventually consistent. The History and audit arrays use
+read-modify-write operations, so exceptionally concurrent writes can overwrite
+one another. The short-link records themselves are stored independently.
+
+## Security
+
+### Authentication and exposure
+
+- Cloudflare Access protects `/admin/*`.
+- Microsoft Entra ID is the identity provider.
+- Public short-link redirects do not require authentication.
+- Alternate `workers.dev` and preview hostnames are disabled.
+
+### Input and redirect controls
+
+- Only `http:` and `https:` destinations are accepted.
+- New links are created only when the destination check succeeds.
+- Stored non-HTTP(S) values are never redirected.
+- Delete routes accept only six-character short keys.
+
+### SSRF protection
+
+Destination checks:
+
+- reject URL credentials;
+- reject private, loopback, link-local, reserved, mapped, and non-public IPs;
+- validate both IPv4 and IPv6;
+- resolve DNS through Cloudflare DNS-over-HTTPS;
+- fail closed when DNS validation fails;
+- validate every redirect target;
+- follow at most five redirects;
+- enforce a five-second total timeout;
+- avoid consuming response bodies.
+
+### Request controls
+
+- Create: 30 requests per 10 minutes
+- Destination check: 300 requests per minute
+- Delete: 100 requests per 10 minutes
+
+The limiter uses the Access identity when available, otherwise the
+Cloudflare-provided connecting IP. Counters are stored temporarily in KV.
+Public redirects are not rate limited.
+
+### Browser controls
+
+Responses include:
+
+- nonce-based Content Security Policy;
+- no `unsafe-inline` for scripts or styles;
+- HSTS;
+- anti-clickjacking controls;
+- MIME sniffing protection;
+- Referrer Policy;
+- Permissions Policy;
+- cross-origin isolation headers.
+
+Scripts and styles are local. The application does not load UI or QR resources
+from third-party CDNs.
+
+### CSRF
+
+Unsafe administration requests must originate from the same site. Rejected
+HTML and JSON requests return explicit CSRF errors.
+
+### Reporting security issues
+
+Do not publish credentials, sensitive destinations, or exploit details in a
+public issue. Report security concerns through the IAS internal IT/security
+channel and include:
+
+- affected URL or route;
+- reproduction steps;
+- expected and observed behavior;
+- relevant timestamps;
+- sanitized logs or screenshots.
+
+## Operations
+
+### History
+
+Open:
+
+```text
+https://toias.link/admin/history
 ```
 
-After running the command, a URL for your deployed site will be displayed. It might look something like this:
+The indicator beside an original URL is:
 
-```txt
-https://random-strings.url-shortener-abc.pages.dev/
+- yellow while checking;
+- green when the destination responds;
+- red when it is missing, blocked, or unreachable.
+
+Some destinations intentionally block automated requests and can therefore
+produce a false red result.
+
+### Audit log
+
+Open:
+
+```text
+https://toias.link/admin/audit
 ```
 
-It takes a bit of time to be ready for viewing after it's created, so let's wait. In some cases, you might be able to view it by accessing `url-shortener-abc.pages.dev`, removing the initial host name part.
+Use the audit log to identify who created or deleted a link. Cloudflare Worker
+logs contain the same events under `event: short-link-audit`.
 
-### Setting KV in the Dashboard
+### Dependency updates
 
-But wait! You might see an "_Internal Server Error_". This is because KV settings are not done for the production environment. Despite writing settings in `wrangler.toml`, they won't apply; dashboard settings are required. Go to the settings page of the Pages project you created, navigate to the KV section, and specify the namespace you created earlier with the name KV.
+Dependabot checks npm dependencies every Monday at 09:00 Europe/Rome.
 
-![Screenshot](https://github.com/yusukebe/url-shortener/assets/10682/592b16a9-b124-4bf4-852f-c523aea0b249)
+- production minor/patch updates are grouped;
+- development minor/patch updates are grouped;
+- major updates are separate;
+- `DPOGH` is requested as reviewer;
+- updates are never merged automatically.
 
-Deploying again should work now!
+After reviewing an update, merge it only when the Cloudflare build succeeds.
 
-## Deleting the Project
+## Troubleshooting
 
-If you're not planning to use it, remember to delete the production Pages project.
+### Admin opens without a login prompt
 
-## Summary
+Check the Cloudflare Access application and policy for `toias.link/admin*`.
+Also confirm `workers_dev = false` and `preview_urls = false`.
 
-We made a URL shortening app using Cloudflare KV and Hono and deployed it to Cloudflare Pages. The main `src/index.tsx` is about 100 lines, but it's a complete app with page layouts, validation, and error handling, not just "returning JSON". However, as it stands, external users could potentially create unlimited short URLs, hitting KV indefinitely, so consider this for further development.
+### A valid destination is rejected
 
-How was it? Pretty neat, right? Creating apps on Cloudflare Pages with Hono offers a lot of possibilities, so give it a try. Also, if you're building a bigger app, [HonoX](https://github.com/honojs/honox), which allows for file-based routing, might be more convenient, so consider using that too.
+The site may reject `HEAD`, range requests, automated clients, or Cloudflare
+egress. Check Worker logs for `Destination probe failed` and test the
+destination independently.
 
----
+### History shows a red destination
 
-## Author
+Open the destination directly. A red result means the server-side check failed;
+it does not automatically delete an existing short link.
 
-Yusuke Wada <https://github.com/yusukebe>
+### Create or delete returns HTTP 429
 
-## License
+The relevant rate limit was reached. Respect the `Retry-After` response header
+before retrying.
 
-MIT
+### Local Create fails
+
+Use `npm run preview`, not only the Vite development server, so the local KV
+binding is available.
+
+### Cloudflare deployment fails
+
+Open the `Workers Builds: url-shortener` check from the pull request and inspect
+the Cloudflare build log. Reproduce locally with:
+
+```bash
+npm ci
+npm run build
+npx wrangler deploy --dry-run
+```
+
+## License and attribution
+
+Licensed under the [MIT License](LICENSE).
+
+Originally based on Yusuke Wada's
+[Hono URL Shortener tutorial](https://github.com/yusukebe/url-shortener).
