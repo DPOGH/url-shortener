@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { csrf } from 'hono/csrf'
+import type { MiddlewareHandler } from 'hono'
 import { renderer } from './renderer'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
@@ -16,109 +16,378 @@ const app = new Hono<{
 // Apply JSX renderer to all routes
 app.all('*', renderer)
 
+const SHORT_KEY_RE = /^[0-9a-z]{6}$/
+
+/** Traffic-light indicator for status feedback */
+const Semaphore = ({
+  color
+}: {
+  color: 'green' | 'yellow' | 'red'
+}) => {
+  const dim = '#333'
+  const colors = {
+    red: color === 'red' ? '#e63946' : dim,
+    yellow: color === 'yellow' ? '#f4a261' : dim,
+    green: color === 'green' ? '#2a9d8f' : dim
+  }
+  const label =
+    color === 'green' ? 'OK' : color === 'yellow' ? 'Check' : 'Error'
+  return (
+    <div
+      role="img"
+      aria-label={label}
+      title={label}
+      style={{
+        display: 'inline-flex',
+        flexDirection: 'column',
+        gap: '4px',
+        padding: '8px 6px',
+        background: '#111',
+        border: '1px solid #444',
+        borderRadius: '10px',
+        verticalAlign: 'middle'
+      }}
+    >
+      <span
+        style={{
+          width: '14px',
+          height: '14px',
+          borderRadius: '50%',
+          background: colors.red,
+          boxShadow: color === 'red' ? '0 0 6px #e63946' : 'none'
+        }}
+      />
+      <span
+        style={{
+          width: '14px',
+          height: '14px',
+          borderRadius: '50%',
+          background: colors.yellow,
+          boxShadow: color === 'yellow' ? '0 0 6px #f4a261' : 'none'
+        }}
+      />
+      <span
+        style={{
+          width: '14px',
+          height: '14px',
+          borderRadius: '50%',
+          background: colors.green,
+          boxShadow: color === 'green' ? '0 0 6px #2a9d8f' : 'none'
+        }}
+      />
+    </div>
+  )
+}
+
+const focusStyles = (
+  <style>
+    {`
+      input[type="text"],
+      input[type="date"],
+      input[type="url"] {
+        outline: none;
+      }
+      input[type="text"]:focus,
+      input[type="date"]:focus,
+      input[type="url"]:focus {
+        border-color: #00b4d8;
+        box-shadow: 0 0 3px #00b4d8;
+      }
+    `}
+  </style>
+)
+
+/** Standalone HTML error page (no site chrome) with traffic light */
+const standaloneStatusPage = (opts: {
+  title: string
+  heading: string
+  message: string
+  detail?: string
+  color: 'green' | 'yellow' | 'red'
+  status: number
+  homeHref?: string
+}) => {
+  const lit =
+    opts.color === 'red'
+      ? { r: '#e63946', y: '#333', g: '#333', glow: '#e63946' }
+      : opts.color === 'yellow'
+        ? { r: '#333', y: '#f4a261', g: '#333', glow: '#f4a261' }
+        : { r: '#333', y: '#333', g: '#2a9d8f', glow: '#2a9d8f' }
+  const home = opts.homeHref ?? 'https://www.iasociety.org'
+  const detail = opts.detail
+    ? `<p style="color:#aaa;font-size:0.9em;">${opts.detail}</p>`
+    : ''
+  return new Response(
+    `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>${opts.title}</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body style="background:#000;color:#fff;font-family:system-ui,sans-serif;">
+    <div style="max-width:600px;margin:60px auto;text-align:center;">
+      <div role="img" aria-label="${opts.color}" title="${opts.color}"
+        style="display:inline-flex;flex-direction:column;gap:6px;padding:12px 10px;background:#111;border:1px solid #444;border-radius:14px;margin-bottom:20px;">
+        <span style="width:18px;height:18px;border-radius:50%;background:${lit.r};box-shadow:${opts.color === 'red' ? `0 0 8px ${lit.glow}` : 'none'};"></span>
+        <span style="width:18px;height:18px;border-radius:50%;background:${lit.y};box-shadow:${opts.color === 'yellow' ? `0 0 8px ${lit.glow}` : 'none'};"></span>
+        <span style="width:18px;height:18px;border-radius:50%;background:${lit.g};box-shadow:${opts.color === 'green' ? `0 0 8px ${lit.glow}` : 'none'};"></span>
+      </div>
+      <h2>${opts.heading}</h2>
+      <p>${opts.message}</p>
+      ${detail}
+      <p style="margin-top:24px;">
+        <a href="${home}" style="color:#00b4d8;">Go to IAS</a>
+        &nbsp;·&nbsp;
+        <a href="/admin/" style="color:#00b4d8;">Admin</a>
+      </p>
+    </div>
+  </body>
+</html>`,
+    {
+      status: opts.status,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' }
+    }
+  )
+}
+
+/**
+ * CSRF for all unsafe methods (not only form content-types).
+ * On failure: HTML page or JSON depending on mode.
+ */
+const csrfProtect = (
+  mode: 'html' | 'json' = 'html'
+): MiddlewareHandler => {
+  return async (c, next) => {
+    if (/^(GET|HEAD|OPTIONS)$/i.test(c.req.method)) {
+      await next()
+      return
+    }
+    const secFetchSite = c.req.header('sec-fetch-site')
+    const origin = c.req.header('origin')
+    const reqOrigin = new URL(c.req.url).origin
+    const allowedBySecFetch = secFetchSite === 'same-origin'
+    const allowedByOrigin = !!origin && origin === reqOrigin
+
+    if (!allowedBySecFetch && !allowedByOrigin) {
+      if (mode === 'json') {
+        return c.json(
+          {
+            ok: false,
+            error: 'csrf',
+            message:
+              'Request blocked by CSRF check. Reload the page and try again from this site.'
+          },
+          403
+        )
+      }
+      return c.render(
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+          <Semaphore color="red" />
+          <div>
+            <h2>Request blocked (CSRF)</h2>
+            <p>
+              This action was rejected because it did not come from this site.
+              Open the form again and resubmit.
+            </p>
+            <p>
+              <a href="/admin/">Back to admin</a>
+            </p>
+          </div>
+        </div>
+      )
+    }
+    await next()
+  }
+}
+
+const isHttpUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 // Redirect for shortened URL (valid 6-char key)
 app.get('/:key{[0-9a-z]{6}}', async (c) => {
   const key = c.req.param('key')
   const url = await c.env.KV.get(key)
 
-    if (url === null) {
-    // Short URL not found: pagina standalone senza layout/header
-    return c.html(
-      `
-      <html>
-        <head>
-          <title>Link not found</title>
-          <meta charset="utf-8" />
-        </head>
-        <body style="background:#000;color:#fff;font-family:sans-serif;">
-          <div style="max-width:600px;margin:60px auto;text-align:center;">
-            <h2>Link not found</h2>
-            <p>The link you requested is not reachable anymore.</p>
-            <p>You will be redirected in 10 seconds to iasociety.org.</p>
-          </div>
-          <script>
-            setTimeout(function () {
-              window.location.href = 'https://www.iasociety.org';
-            }, 10000);
-          </script>
-        </body>
-      </html>
-      `,
-      404
-    )
+  if (url === null) {
+    return standaloneStatusPage({
+      title: 'Link not found',
+      heading: 'Link not found',
+      message: 'This short link does not exist or was deleted.',
+      detail: `Checked key: ${key}`,
+      color: 'red',
+      status: 404,
+      homeHref: 'https://www.iasociety.org'
+    })
+  }
+
+  if (!isHttpUrl(url)) {
+    return standaloneStatusPage({
+      title: 'Invalid link',
+      heading: 'Invalid destination',
+      message:
+        'This short link points to a non-http(s) URL and will not be opened.',
+      color: 'red',
+      status: 400
+    })
   }
 
   return c.redirect(url)
 })
 
 // Redirect root / to /admin/
-app.get("/", (c) => {
-  return c.redirect("/admin/");
-});
+app.get('/', (c) => {
+  return c.redirect('/admin/')
+})
 
 // Redirect /admin to /admin/
-app.get("/admin", (c) => {
-  return c.redirect("/admin/");
-});
+app.get('/admin', (c) => {
+  return c.redirect('/admin/')
+})
 
-// Home page with form
+// Home page with form + live URL check (semaphore)
 app.get('/admin/', (c) => {
   return c.render(
     <div>
       <h2>Create shortened URL!</h2>
-      <form action="/admin/create" method="post">
-        <input
-          type="text"
-          name="url"
-          autoComplete="off"
-          placeholder="Enter URL to shorten..."
+      <form action="/admin/create" method="post" id="create-form">
+        <div
           style={{
-            width: '80%',
-            padding: '6px 8px',
-            backgroundColor: '#222',
-            color: '#f5f5f5',
-            border: '1px solid #555',
-            borderRadius: '4px'
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            flexWrap: 'wrap'
           }}
-        />
-        &nbsp;
-        <button type="submit">Create</button>
+        >
+          <Semaphore color="yellow" />
+          <input
+            id="url-input"
+            type="url"
+            name="url"
+            autoComplete="off"
+            placeholder="https://example.com/..."
+            required
+            style={{
+              width: '70%',
+              minWidth: '220px',
+              padding: '6px 8px',
+              backgroundColor: '#222',
+              color: '#f5f5f5',
+              border: '1px solid #555',
+              borderRadius: '4px'
+            }}
+          />
+          <button type="submit" id="create-submit">
+            Create
+          </button>
+        </div>
+        <p
+          id="url-status"
+          style={{ marginTop: '8px', fontSize: '0.85em', color: '#ccc' }}
+        >
+          Enter an http(s) URL — the light turns green when the format is valid.
+        </p>
       </form>
 
       <p style={{ marginTop: '10px' }}>
         <a href="/admin/history">View history</a>
       </p>
 
-      {/* Focus styles for inputs */}
-      <style>
-        {`
-          input[type="text"],
-          input[type="date"] {
-            outline: none;
-          }
-          input[type="text"]:focus,
-          input[type="date"]:focus {
-            border-color: #00b4d8;
-            box-shadow: 0 0 3px #00b4d8;
-          }
-        `}
-      </style>
+      {focusStyles}
+
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+          (function () {
+            const input = document.getElementById('url-input');
+            const status = document.getElementById('url-status');
+            const form = document.getElementById('create-form');
+            const lights = form ? form.querySelectorAll('[role="img"] span') : [];
+            if (!input || lights.length < 3) return;
+
+            function setLight(color) {
+              const map = { red: 0, yellow: 1, green: 2 };
+              const on = ['#e63946', '#f4a261', '#2a9d8f'];
+              lights.forEach((el, i) => {
+                const active = map[color] === i;
+                el.style.background = active ? on[i] : '#333';
+                el.style.boxShadow = active ? '0 0 6px ' + on[i] : 'none';
+              });
+            }
+
+            function isHttpUrl(value) {
+              try {
+                const u = new URL(value);
+                return u.protocol === 'http:' || u.protocol === 'https:';
+              } catch (e) {
+                return false;
+              }
+            }
+
+            function refresh() {
+              const value = (input.value || '').trim();
+              if (!value) {
+                setLight('yellow');
+                if (status) status.textContent = 'Enter an http(s) URL — the light turns green when the format is valid.';
+                return false;
+              }
+              if (isHttpUrl(value)) {
+                setLight('green');
+                if (status) status.textContent = 'URL looks valid.';
+                return true;
+              }
+              setLight('red');
+              if (status) status.textContent = 'Invalid URL. Use http:// or https:// only.';
+              return false;
+            }
+
+            input.addEventListener('input', refresh);
+            input.addEventListener('change', refresh);
+            form.addEventListener('submit', function (e) {
+              if (!refresh()) {
+                e.preventDefault();
+                setLight('red');
+                if (status) status.textContent = 'Cannot create: invalid URL.';
+              }
+            });
+            refresh();
+          })();
+        `
+        }}
+      />
     </div>
   )
 })
 
 const schema = z.object({
-  url: z.string().url()
+  url: z
+    .string()
+    .trim()
+    .url({ message: 'Invalid URL format' })
+    .refine(isHttpUrl, { message: 'Only http and https URLs are allowed' })
 })
 
-// Zod validator with simple error page
+// Zod validator with clear error page + red semaphore
 const validator = zValidator('form', schema, (result, c) => {
   if (!result.success) {
+    const issue = result.error.issues[0]?.message || 'Invalid URL'
     return c.render(
-      <div>
-        <h2>Error!</h2>
-        <p>Invalid URL format. Please check and try again.</p>
-        <a href="/">Back to top</a>
+      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+        <Semaphore color="red" />
+        <div>
+          <h2>Invalid URL</h2>
+          <p>{issue}</p>
+          <p>Use a full address starting with <code>http://</code> or <code>https://</code>.</p>
+          <p>
+            <a href="/admin/">Back to admin</a>
+          </p>
+        </div>
       </div>
     )
   }
@@ -174,9 +443,38 @@ const removeFromHistory = async (kv: KVNamespace, keyToRemove: string) => {
   await kv.put(HISTORY_KEY, JSON.stringify(filtered))
 }
 
+// Local QR SVG for a short key (Workers-safe; no third-party API / no canvas)
+app.get('/admin/qr/:key{[0-9a-z]{6}}', async (c) => {
+  const key = c.req.param('key')
+  const dest = await c.env.KV.get(key)
+  if (dest === null) {
+    return c.json({ ok: false, error: 'not-found', message: 'Short link not found' }, 404)
+  }
+  const shortUrl = new URL(`/${key}`, c.req.url).toString()
+  const qrSvgRaw = await QRCode.toString(shortUrl, {
+    type: 'svg',
+    margin: 1,
+    errorCorrectionLevel: 'M'
+  })
+  const qrSvg = qrSvgRaw.replace('<svg', '<svg width="200" height="200"')
+  return c.body(qrSvg, 200, {
+    'Content-Type': 'image/svg+xml; charset=utf-8',
+    'Cache-Control': 'private, max-age=3600'
+  })
+})
+
 // History page with filters
 app.get('/admin/history', async (c) => {
   const items = await getHistory(c.env.KV)
+
+  // Existence check for semaphore (green = KV key present)
+  const existence = await Promise.all(
+    items.map(async (item) => {
+      const v = await c.env.KV.get(item.key)
+      return { key: item.key, exists: v !== null }
+    })
+  )
+  const existsMap = new Map(existence.map((e) => [e.key, e.exists]))
 
   return c.render(
     <div>
@@ -185,7 +483,6 @@ app.get('/admin/history', async (c) => {
 
       {/* Filters: text + date range */}
       <div style={{ marginBottom: '10px', fontSize: '0.85em' }}>
-        {/* first row: text search */}
         <div style={{ marginBottom: '6px' }}>
           <label>
             Search (URL / short URL):{' '}
@@ -205,7 +502,6 @@ app.get('/admin/history', async (c) => {
           </label>
         </div>
 
-        {/* second row: dates + clear */}
         <div>
           <span>
             <label>
@@ -268,6 +564,15 @@ app.get('/admin/history', async (c) => {
                 textAlign: 'left'
               }}
             >
+              Status
+            </th>
+            <th
+              style={{
+                borderBottom: '1px solid #555',
+                padding: '4px',
+                textAlign: 'left'
+              }}
+            >
               Created at
             </th>
             <th
@@ -302,8 +607,19 @@ app.get('/admin/history', async (c) => {
         <tbody>
           {items.map((item) => {
             const shortUrl = new URL(`/${item.key}`, c.req.url).toString()
+            const exists = existsMap.get(item.key) ?? false
             return (
-              <tr key={item.key}>
+              <tr key={item.key} data-exists={exists ? '1' : '0'}>
+                <td
+                  style={{
+                    padding: '4px',
+                    verticalAlign: 'top',
+                    borderTop: '1px solid #333'
+                  }}
+                  title={exists ? 'Link active' : 'Link missing in KV'}
+                >
+                  <Semaphore color={exists ? 'green' : 'red'} />
+                </td>
                 <td
                   class="created-at-cell"
                   style={{
@@ -347,11 +663,13 @@ app.get('/admin/history', async (c) => {
                   >
                     Copy URL
                   </button>
-                   <button
+                  <button
                     type="button"
                     class="qr-copy-btn"
                     data-url={shortUrl}
+                    data-key={item.key}
                     style={{ marginLeft: '6px' }}
+                    disabled={!exists}
                   >
                     Copy QR
                   </button>
@@ -362,7 +680,7 @@ app.get('/admin/history', async (c) => {
                     style={{ marginLeft: '6px' }}
                   >
                     Delete
-                  </button>                 
+                  </button>
                 </td>
               </tr>
             )
@@ -371,7 +689,7 @@ app.get('/admin/history', async (c) => {
       </table>
 
       <p style={{ marginTop: '10px' }}>
-        <a href="/">Back to Home</a>
+        <a href="/admin/">Back to Home</a>
       </p>
 
       <p
@@ -379,7 +697,9 @@ app.get('/admin/history', async (c) => {
         style={{ marginTop: '8px', fontSize: '0.8em', color: '#ccc' }}
       />
 
-      {/* Client-side script for filters, copy, delete and QR actions */}
+      {focusStyles}
+
+      {/* Client-side script: filters, copy, delete, local QR */}
       <script
         dangerouslySetInnerHTML={{
           __html: `
@@ -395,11 +715,10 @@ app.get('/admin/history', async (c) => {
               if (!statusEl) return;
               statusEl.textContent = msg;
               if (msg) {
-                setTimeout(() => { statusEl.textContent = ''; }, 2000);
+                setTimeout(() => { statusEl.textContent = ''; }, 2500);
               }
             }
 
-            // Text + date filter (client-side only)
             function applyFilters() {
               if (!table) return;
               const text = (searchInput && searchInput.value || '').toLowerCase().trim();
@@ -412,11 +731,11 @@ app.get('/admin/history', async (c) => {
 
               rows.forEach((tr) => {
                 const tds = tr.getElementsByTagName('td');
-                if (tds.length < 3) return;
+                if (tds.length < 4) return;
 
-                const createdAtText = tds[0].textContent || '';
-                const originalText = (tds[1].textContent || '').toLowerCase();
-                const shortText = (tds[2].textContent || '').toLowerCase();
+                const createdAtText = tds[1].textContent || '';
+                const originalText = (tds[2].textContent || '').toLowerCase();
+                const shortText = (tds[3].textContent || '').toLowerCase();
 
                 const matchesText =
                   !text ||
@@ -438,23 +757,13 @@ app.get('/admin/history', async (c) => {
                   }
                 }
 
-                if (matchesText && matchesDate) {
-                  tr.style.display = '';
-                } else {
-                  tr.style.display = 'none';
-                }
+                tr.style.display = matchesText && matchesDate ? '' : 'none';
               });
             }
 
-            if (searchInput) {
-              searchInput.addEventListener('input', applyFilters);
-            }
-            if (fromInput) {
-              fromInput.addEventListener('change', applyFilters);
-            }
-            if (toInput) {
-              toInput.addEventListener('change', applyFilters);
-            }
+            if (searchInput) searchInput.addEventListener('input', applyFilters);
+            if (fromInput) fromInput.addEventListener('change', applyFilters);
+            if (toInput) toInput.addEventListener('change', applyFilters);
             if (clearBtn) {
               clearBtn.addEventListener('click', () => {
                 if (searchInput) searchInput.value = '';
@@ -464,7 +773,6 @@ app.get('/admin/history', async (c) => {
               });
             }
 
-            // Copy short URL to clipboard
             document.querySelectorAll('.copy-short-btn').forEach((btn) => {
               btn.addEventListener('click', async () => {
                 const url = btn.getAttribute('data-url');
@@ -487,7 +795,6 @@ app.get('/admin/history', async (c) => {
               });
             });
 
-            // Delete single row (KV key + history)
             document.querySelectorAll('.delete-btn').forEach((btn) => {
               btn.addEventListener('click', async () => {
                 const key = btn.getAttribute('data-key');
@@ -501,8 +808,9 @@ app.get('/admin/history', async (c) => {
                       'Content-Type': 'application/json'
                     }
                   });
+                  const data = await res.json().catch(() => ({}));
                   if (!res.ok) {
-                    setStatus('Delete failed');
+                    setStatus((data && data.message) || 'Delete failed');
                     return;
                   }
                   const tr = btn.closest('tr');
@@ -517,12 +825,41 @@ app.get('/admin/history', async (c) => {
               });
             });
 
-            // Generate QR PNG blob for a given URL using external QR API
-            async function generateQrPngBlob(url) {
-              const apiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(url);
-              const resp = await fetch(apiUrl);
-              if (!resp.ok) throw new Error('QR fetch failed');
-              return await resp.blob();
+            // Local QR endpoint (SVG) → PNG in browser — no third-party API
+            async function generateQrPngBlob(key) {
+              const resp = await fetch('/admin/qr/' + encodeURIComponent(key));
+              if (!resp.ok) {
+                const data = await resp.json().catch(() => ({}));
+                throw new Error((data && data.message) || 'QR fetch failed');
+              }
+              const svgText = await resp.text();
+              const svgBlob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+              const url = URL.createObjectURL(svgBlob);
+              try {
+                const img = new Image();
+                const imgLoad = new Promise((resolve, reject) => {
+                  img.onload = resolve;
+                  img.onerror = reject;
+                });
+                img.src = url;
+                await imgLoad;
+                const canvas = document.createElement('canvas');
+                canvas.width = 200;
+                canvas.height = 200;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) throw new Error('No canvas context');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, 200, 200);
+                ctx.drawImage(img, 0, 0, 200, 200);
+                return await new Promise((resolve, reject) => {
+                  canvas.toBlob((blob) => {
+                    if (!blob) reject(new Error('PNG blob failed'));
+                    else resolve(blob);
+                  }, 'image/png');
+                });
+              } finally {
+                URL.revokeObjectURL(url);
+              }
             }
 
             function downloadBlob(blob, filename) {
@@ -536,13 +873,12 @@ app.get('/admin/history', async (c) => {
               URL.revokeObjectURL(blobUrl);
             }
 
-            // Copy QR to clipboard as PNG (fallback: download)
             document.querySelectorAll('.qr-copy-btn').forEach((btn) => {
               btn.addEventListener('click', async () => {
-                const url = btn.getAttribute('data-url');
-                if (!url) return;
+                const key = btn.getAttribute('data-key');
+                if (!key) return;
                 try {
-                  const blob = await generateQrPngBlob(url);
+                  const blob = await generateQrPngBlob(key);
                   if (
                     navigator.clipboard &&
                     window.ClipboardItem &&
@@ -556,14 +892,14 @@ app.get('/admin/history', async (c) => {
                     setStatus('Clipboard not supported, downloaded PNG');
                   }
                 } catch (e) {
-                  setStatus('QR copy failed');
+                  setStatus((e && e.message) || 'QR copy failed');
                 }
               });
             });
 
             applyFilters();
           })();
-        `,
+        `
         }}
       />
     </div>
@@ -584,7 +920,7 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
 }
 
 // Create shortened URL + QR (SVG 200px) + copy & PNG buttons
-app.post('/admin/create', csrf(), validator, async (c) => {
+app.post('/admin/create', csrfProtect('html'), validator, async (c) => {
   try {
     const { url } = c.req.valid('form')
     const key = await createKey(c.env.KV, url)
@@ -598,13 +934,11 @@ app.post('/admin/create', csrf(), validator, async (c) => {
       createdAt: new Date().toISOString()
     })
 
-    // Generate QR code as SVG
     const qrSvgRaw = await QRCode.toString(shortUrlStr, {
       type: 'svg',
       margin: 0
     })
 
-    // Force 200x200 size on <svg>
     const qrSvg = qrSvgRaw.replace(
       '<svg',
       '<svg width="200" height="200"'
@@ -612,10 +946,15 @@ app.post('/admin/create', csrf(), validator, async (c) => {
 
     return c.render(
       <div>
-        <h2>Created!</h2>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+          <Semaphore color="green" />
+          <div>
+            <h2>Created!</h2>
+            <p style={{ fontSize: '0.9em', color: '#aaa' }}>Short link is active.</p>
+          </div>
+        </div>
 
-        {/* Short URL field */}
-        <div style={{ marginBottom: '10px' }}>
+        <div style={{ marginBottom: '10px', marginTop: '12px' }}>
           <input
             id="short-url"
             type="text"
@@ -632,7 +971,6 @@ app.post('/admin/create', csrf(), validator, async (c) => {
           />
         </div>
 
-        {/* Buttons for URL and QR */}
         <div style={{ marginBottom: '20px' }}>
           <button id="copy-url-btn" type="button">
             Copy URL
@@ -650,7 +988,6 @@ app.post('/admin/create', csrf(), validator, async (c) => {
           />
         </div>
 
-        {/* QR code (SVG) */}
         <div style={{ marginTop: '10px' }}>
           <h3>QR Code:</h3>
           <div
@@ -660,14 +997,12 @@ app.post('/admin/create', csrf(), validator, async (c) => {
           />
         </div>
 
-        {/* Links */}
         <div style={{ marginTop: '10px' }}>
-          <a href="/">Back to Home</a>
+          <a href="/admin/">Back to Home</a>
           <span> | </span>
           <a href="/admin/history">View history</a>
         </div>
 
-        {/* Client-side script: copy URL, copy QR PNG, download QR PNG */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -679,7 +1014,6 @@ app.post('/admin/create', csrf(), validator, async (c) => {
                 const qrContainer = document.getElementById('qr-container');
                 if (!input || !qrContainer) return;
 
-                // Copy URL button
                 if (copyUrlBtn) {
                   copyUrlBtn.addEventListener('click', async () => {
                     const text = input.value;
@@ -700,7 +1034,6 @@ app.post('/admin/create', csrf(), validator, async (c) => {
                   });
                 }
 
-                // Convert SVG → PNG (200x200) and return a Blob
                 async function svgToPngBlob() {
                   const svgEl = qrContainer.querySelector('svg');
                   if (!svgEl) throw new Error('SVG not found');
@@ -738,7 +1071,6 @@ app.post('/admin/create', csrf(), validator, async (c) => {
                   }
                 }
 
-                // Download PNG helper
                 function downloadPng(blob) {
                   const pngUrl = URL.createObjectURL(blob);
                   const a = document.createElement('a');
@@ -749,8 +1081,7 @@ app.post('/admin/create', csrf(), validator, async (c) => {
                   document.body.removeChild(a);
                   URL.revokeObjectURL(pngUrl);
                 }
-                
-                // Copy QR (PNG) to clipboard (with fallback to download)
+
                 if (copyQrBtn) {
                   copyQrBtn.addEventListener('click', async () => {
                     try {
@@ -780,57 +1111,74 @@ app.post('/admin/create', csrf(), validator, async (c) => {
                   });
                 }
               })();
-            `,
+            `
           }}
         />
       </div>
     )
   } catch (e) {
     console.error('Error in /admin/create handler:', e)
-    throw e // Let global error handler catch this
+    throw e
   }
 })
 
-// Delete single entry (KV key + history)
-app.post('/admin/history/delete/:key', csrf(), async (c) => {
-  const key = c.req.param('key')
-  try {
-    await c.env.KV.delete(key)
-    await removeFromHistory(c.env.KV, key)
-    return c.json({ ok: true })
-  } catch (e) {
-    console.error('Error deleting key from history:', e)
-    return c.json({ ok: false, error: 'delete-failed' }, 500)
+// Delete single entry (KV key + history) — key format constrained
+app.post(
+  '/admin/history/delete/:key{[0-9a-z]{6}}',
+  csrfProtect('json'),
+  async (c) => {
+    const key = c.req.param('key')
+    if (!SHORT_KEY_RE.test(key)) {
+      return c.json(
+        { ok: false, error: 'invalid-key', message: 'Invalid short key' },
+        400
+      )
+    }
+    try {
+      await c.env.KV.delete(key)
+      await removeFromHistory(c.env.KV, key)
+      return c.json({ ok: true })
+    } catch (e) {
+      console.error('Error deleting key from history:', e)
+      return c.json(
+        { ok: false, error: 'delete-failed', message: 'Delete failed' },
+        500
+      )
+    }
   }
-})
+)
 
-// Global error handler for generic 500 errors (no links, just redirect)
+// Clearer global errors (no silent redirect to iasociety.org)
 app.onError((err, c) => {
   console.error('Unhandled error:', err)
+  const path = new URL(c.req.url).pathname
+  const isAdmin = path.startsWith('/admin')
 
-  return c.html(
-    `
-      <html>
-        <head>
-          <title>Page not found</title>
-          <meta charset="utf-8" />
-        </head>
-        <body style="background:#000;color:#fff;font-family:sans-serif;">
-          <div style="max-width:600px;margin:60px auto;text-align:center;">
-            <h2>Page not found</h2>
-            <p>An unexpected error occurred or the page you requested is not available.</p>
-            <p>You will be redirected shortly to iasociety.org.</p>
-          </div>
-          <script>
-            setTimeout(function () {
-              window.location.href = 'https://www.iasociety.org';
-            }, 10000);
-          </script>
-        </body>
-      </html>
-    `,
-    500
-  )
+  if (isAdmin) {
+    return c.render(
+      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+        <Semaphore color="red" />
+        <div>
+          <h2>Something went wrong</h2>
+          <p>An unexpected error occurred while processing your request.</p>
+          <p style={{ fontSize: '0.85em', color: '#aaa' }}>
+            {err instanceof Error ? err.message : 'Unknown error'}
+          </p>
+          <p>
+            <a href="/admin/">Back to admin</a>
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return standaloneStatusPage({
+    title: 'Error',
+    heading: 'Page not available',
+    message: 'An unexpected error occurred or the page is not available.',
+    color: 'red',
+    status: 500
+  })
 })
 
 export default app
