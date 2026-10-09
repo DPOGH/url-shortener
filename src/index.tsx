@@ -106,6 +106,9 @@ const standaloneStatusPage = (opts: {
   color: 'green' | 'yellow' | 'red'
   status: number
   homeHref?: string
+  /** Auto-redirect after N ms (e.g. 10000) */
+  redirectAfterMs?: number
+  redirectHref?: string
 }) => {
   const lit =
     opts.color === 'red'
@@ -114,9 +117,35 @@ const standaloneStatusPage = (opts: {
         ? { r: '#333', y: '#f4a261', g: '#333', glow: '#f4a261' }
         : { r: '#333', y: '#333', g: '#2a9d8f', glow: '#2a9d8f' }
   const home = opts.homeHref ?? 'https://www.iasociety.org'
+  const redirectHref = opts.redirectHref ?? home
   const detail = opts.detail
     ? `<p style="color:#aaa;font-size:0.9em;">${opts.detail}</p>`
     : ''
+  const seconds =
+    opts.redirectAfterMs && opts.redirectAfterMs > 0
+      ? Math.round(opts.redirectAfterMs / 1000)
+      : 0
+  const redirectNote =
+    seconds > 0
+      ? `<p id="redirect-note">You will be redirected in <span id="redirect-count">${seconds}</span> seconds to iasociety.org.</p>`
+      : ''
+  const redirectScript =
+    seconds > 0
+      ? `<script>
+            (function () {
+              var left = ${seconds};
+              var el = document.getElementById('redirect-count');
+              var timer = setInterval(function () {
+                left -= 1;
+                if (el) el.textContent = String(Math.max(left, 0));
+                if (left <= 0) {
+                  clearInterval(timer);
+                  window.location.href = ${JSON.stringify(redirectHref)};
+                }
+              }, 1000);
+            })();
+          </script>`
+      : ''
   return new Response(
     `<!DOCTYPE html>
 <html lang="en">
@@ -136,12 +165,14 @@ const standaloneStatusPage = (opts: {
       <h2>${opts.heading}</h2>
       <p>${opts.message}</p>
       ${detail}
+      ${redirectNote}
       <p style="margin-top:24px;">
         <a href="${home}" style="color:#00b4d8;">Go to IAS</a>
         &nbsp;·&nbsp;
         <a href="/admin/" style="color:#00b4d8;">Admin</a>
       </p>
     </div>
+    ${redirectScript}
   </body>
 </html>`,
     {
@@ -150,7 +181,6 @@ const standaloneStatusPage = (opts: {
     }
   )
 }
-
 /**
  * CSRF for all unsafe methods (not only form content-types).
  * On failure: HTML page or JSON depending on mode.
@@ -223,7 +253,9 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
       detail: `Checked key: ${key}`,
       color: 'red',
       status: 404,
-      homeHref: 'https://www.iasociety.org'
+      homeHref: 'https://www.iasociety.org',
+      redirectAfterMs: 10000,
+      redirectHref: 'https://www.iasociety.org'
     })
   }
 
@@ -443,6 +475,89 @@ const removeFromHistory = async (kv: KVNamespace, keyToRemove: string) => {
   await kv.put(HISTORY_KEY, JSON.stringify(filtered))
 }
 
+const isBlockedProbeHost = (hostname: string): boolean => {
+  const host = hostname.toLowerCase()
+  if (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal')
+  ) {
+    return true
+  }
+  // Basic private / link-local IPv4 ranges
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true
+  if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)) return true
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true
+  return false
+}
+
+/** Probe whether a destination URL looks reachable (admin-only helper). */
+const probeDestination = async (
+  rawUrl: string
+): Promise<{ reachable: boolean; status?: number; error?: string }> => {
+  if (!isHttpUrl(rawUrl)) {
+    return { reachable: false, error: 'invalid-url' }
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return { reachable: false, error: 'invalid-url' }
+  }
+  if (isBlockedProbeHost(parsed.hostname)) {
+    return { reachable: false, error: 'blocked-host' }
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 5000)
+  try {
+    let res = await fetch(rawUrl, {
+      method: 'HEAD',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: { 'User-Agent': 'toias.link-linkcheck/1.0' }
+    })
+    // Some hosts reject HEAD — retry with a light GET
+    if (res.status === 405 || res.status === 501) {
+      res = await fetch(rawUrl, {
+        method: 'GET',
+        redirect: 'follow',
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'toias.link-linkcheck/1.0',
+          Range: 'bytes=0-0'
+        }
+      })
+    }
+    // Host answers: 2xx/3xx OK; 401/403 = exists but gated; 404/410 = missing
+    const status = res.status
+    const reachable =
+      (status >= 200 && status < 400) || status === 401 || status === 403
+    return { reachable, status }
+  } catch {
+    return { reachable: false, error: 'fetch-failed' }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Check destination URL reachability (used by history page)
+app.get('/admin/check-destination', async (c) => {
+  const url = c.req.query('url') || ''
+  const result = await probeDestination(url)
+  return c.json({
+    ok: true,
+    url,
+    reachable: result.reachable,
+    status: result.status ?? null,
+    error: result.error ?? null
+  })
+})
+
 // Local QR SVG for a short key (Workers-safe; no third-party API / no canvas)
 app.get('/admin/qr/:key{[0-9a-z]{6}}', async (c) => {
   const key = c.req.param('key')
@@ -479,7 +594,10 @@ app.get('/admin/history', async (c) => {
   return c.render(
     <div>
       <h2>History (latest {items.length} entries)</h2>
-      <p>Showing up to 500 latest shortened URLs.</p>
+      <p>
+        Showing up to 500 latest shortened URLs. Semaphore = short link in KV;
+        yellow/green/red dot next to the original URL = destination check.
+      </p>
 
       {/* Filters: text + date range */}
       <div style={{ marginBottom: '10px', fontSize: '0.85em' }}>
@@ -637,6 +755,21 @@ app.get('/admin/history', async (c) => {
                     borderTop: '1px solid #333'
                   }}
                 >
+                  <span
+                    class="dest-dot"
+                    data-url={item.url}
+                    title="Checking destination..."
+                    style={{
+                      display: 'inline-block',
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      background: '#f4a261',
+                      marginRight: '6px',
+                      verticalAlign: 'middle',
+                      boxShadow: '0 0 4px #f4a261'
+                    }}
+                  />
                   <a href={item.url}>{item.url}</a>
                 </td>
                 <td
@@ -896,6 +1029,60 @@ app.get('/admin/history', async (c) => {
                 }
               });
             });
+
+            // Destination reachability (server-side probe via /admin/check-destination)
+            function setDestDot(dot, reachable, detail) {
+              if (reachable) {
+                dot.style.background = '#2a9d8f';
+                dot.style.boxShadow = '0 0 4px #2a9d8f';
+                dot.title = detail || 'Destination reachable';
+              } else {
+                dot.style.background = '#e63946';
+                dot.style.boxShadow = '0 0 4px #e63946';
+                dot.title = detail || 'Destination not reachable';
+              }
+            }
+
+            async function checkDestination(dot) {
+              const url = dot.getAttribute('data-url');
+              if (!url) {
+                setDestDot(dot, false, 'Missing URL');
+                return;
+              }
+              try {
+                const res = await fetch(
+                  '/admin/check-destination?url=' + encodeURIComponent(url)
+                );
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                  setDestDot(dot, false, 'Check failed');
+                  return;
+                }
+                const detail = data.reachable
+                  ? ('Destination OK' + (data.status ? ' (' + data.status + ')' : ''))
+                  : ('Destination missing/unreachable' +
+                      (data.status ? ' (' + data.status + ')' : '') +
+                      (data.error ? ' — ' + data.error : ''));
+                setDestDot(dot, !!data.reachable, detail);
+              } catch (e) {
+                setDestDot(dot, false, 'Check error');
+              }
+            }
+
+            async function runPool(nodes, limit, worker) {
+              let i = 0;
+              async function run() {
+                while (i < nodes.length) {
+                  const idx = i++;
+                  await worker(nodes[idx]);
+                }
+              }
+              const n = Math.min(limit, nodes.length) || 0;
+              await Promise.all(Array.from({ length: n }, () => run()));
+            }
+
+            const destDots = Array.from(document.querySelectorAll('.dest-dot'));
+            runPool(destDots, 4, checkDestination);
 
             applyFilters();
           })();
