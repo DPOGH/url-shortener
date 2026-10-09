@@ -1,11 +1,12 @@
 import { Hono } from 'hono'
-import type { MiddlewareHandler } from 'hono'
+import type { Context, MiddlewareHandler } from 'hono'
 import { renderer } from './renderer'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import QRCode from 'qrcode'
 import styles from './style.css?raw'
 import iasLogo from './ias-logo.svg?raw'
+import iasIcon from './ias-icon.svg?raw'
 
 type Bindings = {
   KV: KVNamespace
@@ -60,12 +61,15 @@ app.use('*', async (c, next) => {
 // Apply JSX renderer to all routes
 app.all('*', renderer)
 
-app.get('/assets/ias-logo.svg', (c) => {
-  return c.body(iasLogo, 200, {
+const svgAsset = (svg: string) => (c: Context<AppEnv>) =>
+  c.body(svg, 200, {
     'Content-Type': 'image/svg+xml; charset=utf-8',
     'Cache-Control': 'public, max-age=86400'
   })
-})
+
+app.get('/assets/ias-logo.svg', svgAsset(iasLogo))
+app.get('/assets/ias-icon.svg', svgAsset(iasIcon))
+app.get('/favicon.ico', svgAsset(iasIcon))
 
 const SHORT_KEY_RE = /^[0-9a-z]{6}$/
 
@@ -223,6 +227,7 @@ const standaloneStatusPage = (opts: {
     <title>${opts.title}</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/assets/ias-icon.svg" type="image/svg+xml" />
     <style nonce="${opts.nonce}">${styles}</style>
   </head>
   <body>
@@ -526,7 +531,10 @@ const validator = zValidator('form', schema, (result, c) => {
   }
 })
 
-// History support in KV (max 500 items)
+// History support in KV
+const HISTORY_MAX_ITEMS = 5000
+const HISTORY_PAGE_SIZE = 100
+
 type HistoryItem = {
   key: string
   url: string
@@ -607,8 +615,8 @@ const addToHistory = async (kv: KVNamespace, item: HistoryItem) => {
     }
   }
   list.unshift(item)
-  if (list.length > 500) {
-    list = list.slice(0, 500)
+  if (list.length > HISTORY_MAX_ITEMS) {
+    list = list.slice(0, HISTORY_MAX_ITEMS)
   }
   await kv.put(HISTORY_KEY, JSON.stringify(list))
 }
@@ -907,21 +915,13 @@ app.get('/admin/qr/:key{[0-9a-z]{6}}', async (c) => {
 app.get('/admin/history', async (c) => {
   const items = await getHistory(c.env.KV)
 
-  // Existence check for semaphore (green = KV key present)
-  const existence = await Promise.all(
-    items.map(async (item) => {
-      const v = await c.env.KV.get(item.key)
-      return { key: item.key, exists: v !== null }
-    })
-  )
-  const existsMap = new Map(existence.map((e) => [e.key, e.exists]))
-
   return c.render(
     <div>
-      <h2>History (latest {items.length} entries)</h2>
+      <h2>History ({items.length} links)</h2>
       <p>
-        Showing up to 500 latest shortened URLs. The dot next to the original
-        URL is green when the destination is reachable and red when it is not.
+        The dot next to the original URL is green when the destination is
+        reachable and red when it is not. Search and date filters cover the
+        whole history.
       </p>
 
       {/* Filters: text + date range */}
@@ -976,11 +976,10 @@ app.get('/admin/history', async (c) => {
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => {
+          {items.map((item, index) => {
             const shortUrl = new URL(`/${item.key}`, c.req.url).toString()
-            const exists = existsMap.get(item.key) ?? false
             return (
-              <tr key={item.key} data-exists={exists ? '1' : '0'}>
+              <tr key={item.key} hidden={index >= HISTORY_PAGE_SIZE}>
                 <td class="created-at-cell">
                   {item.createdAt}
                 </td>
@@ -1009,7 +1008,6 @@ app.get('/admin/history', async (c) => {
                     data-url={shortUrl}
                     data-key={item.key}
                     class="qr-copy-btn ml-6"
-                    disabled={!exists}
                   >
                     Copy QR
                   </button>
@@ -1026,6 +1024,23 @@ app.get('/admin/history', async (c) => {
           })}
         </tbody>
       </table>
+
+      <div
+        id="history-more"
+        class="history-more"
+        hidden={items.length <= HISTORY_PAGE_SIZE}
+      >
+        <span id="history-more-text">
+          Showing {Math.min(HISTORY_PAGE_SIZE, items.length)} of{' '}
+          {items.length} links. Extend the list?
+        </span>
+        <button id="history-show-more" type="button" class="ml-10">
+          Show {HISTORY_PAGE_SIZE} more
+        </button>
+        <button id="history-show-all" type="button" class="ml-6">
+          Show all
+        </button>
+      </div>
 
       <p class="mt-10">
         <a href="/admin/">Back to Home</a>
@@ -1047,6 +1062,12 @@ app.get('/admin/history', async (c) => {
             const toInput = document.getElementById('history-to');
             const clearBtn = document.getElementById('history-clear-filters');
             const table = document.getElementById('history-table');
+            const moreBox = document.getElementById('history-more');
+            const moreText = document.getElementById('history-more-text');
+            const showMoreBtn = document.getElementById('history-show-more');
+            const showAllBtn = document.getElementById('history-show-all');
+            const pageSize = ${HISTORY_PAGE_SIZE};
+            let visibleLimit = pageSize;
 
             function setStatus(msg) {
               if (!statusEl) return;
@@ -1065,6 +1086,8 @@ app.get('/admin/history', async (c) => {
               const tbody = table.querySelector('tbody');
               if (!tbody) return;
               const rows = Array.from(tbody.querySelectorAll('tr'));
+              const filtersActive = !!(text || fromVal || toVal);
+              let matched = 0;
 
               rows.forEach((tr) => {
                 const tds = tr.getElementsByTagName('td');
@@ -1094,7 +1117,36 @@ app.get('/admin/history', async (c) => {
                   }
                 }
 
-                tr.hidden = !(matchesText && matchesDate);
+                const matches = matchesText && matchesDate;
+                tr.hidden = !matches || (!filtersActive && matched >= visibleLimit);
+                if (matches) matched++;
+              });
+
+              if (moreBox) {
+                const remaining = matched - visibleLimit;
+                moreBox.hidden = filtersActive || remaining <= 0;
+                if (moreText && remaining > 0) {
+                  moreText.textContent =
+                    'Showing ' + visibleLimit + ' of ' + matched + ' links. Extend the list?';
+                }
+                if (showMoreBtn && remaining > 0) {
+                  showMoreBtn.textContent = 'Show ' + Math.min(pageSize, remaining) + ' more';
+                }
+              }
+
+              queueVisibleChecks();
+            }
+
+            if (showMoreBtn) {
+              showMoreBtn.addEventListener('click', () => {
+                visibleLimit += pageSize;
+                applyFilters();
+              });
+            }
+            if (showAllBtn) {
+              showAllBtn.addEventListener('click', () => {
+                visibleLimit = Number.MAX_SAFE_INTEGER;
+                applyFilters();
               });
             }
 
@@ -1270,20 +1322,31 @@ app.get('/admin/history', async (c) => {
               }
             }
 
-            async function runPool(nodes, limit, worker) {
-              let i = 0;
-              async function run() {
-                while (i < nodes.length) {
-                  const idx = i++;
-                  await worker(nodes[idx]);
-                }
+            // Check only rows the user can see; newly revealed rows are queued later.
+            const checkQueue = [];
+            const queuedDots = new Set();
+            let activeChecks = 0;
+
+            function pumpChecks() {
+              while (activeChecks < 4 && checkQueue.length > 0) {
+                const dot = checkQueue.shift();
+                activeChecks++;
+                checkDestination(dot).finally(() => {
+                  activeChecks--;
+                  pumpChecks();
+                });
               }
-              const n = Math.min(limit, nodes.length) || 0;
-              await Promise.all(Array.from({ length: n }, () => run()));
             }
 
-            const destDots = Array.from(document.querySelectorAll('.dest-dot'));
-            runPool(destDots, 4, checkDestination);
+            function queueVisibleChecks() {
+              document.querySelectorAll('#history-table tbody tr:not([hidden]) .dest-dot')
+                .forEach((dot) => {
+                  if (queuedDots.has(dot)) return;
+                  queuedDots.add(dot);
+                  checkQueue.push(dot);
+                });
+              pumpChecks();
+            }
 
             applyFilters();
           })();
@@ -1619,6 +1682,32 @@ app.post(
     }
   }
 )
+
+app.notFound((c) => {
+  if (new URL(c.req.url).pathname.startsWith('/admin')) {
+    c.status(404)
+    return c.render(
+      <div class="status-layout">
+        <Semaphore color="red" />
+        <div>
+          <h2>Page not found</h2>
+          <p>This admin page does not exist.</p>
+          <p>
+            <a href="/admin/">Back to admin</a>
+          </p>
+        </div>
+      </div>
+    )
+  }
+  return standaloneStatusPage({
+    title: 'Page not found',
+    heading: 'Page not found',
+    message: 'This page does not exist.',
+    color: 'red',
+    status: 404,
+    nonce: c.get('cspNonce')
+  })
+})
 
 // Clearer global errors (no silent redirect to iasociety.org)
 app.onError((err, c) => {

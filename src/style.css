@@ -323,6 +323,11 @@ th {
   box-shadow: 0 0 4px #e63946;
 }
 
+.history-more {
+  margin-top: 10px;
+  font-size: 0.85em;
+}
+
 .history-status {
   margin-top: 8px;
   color: #ccc;
