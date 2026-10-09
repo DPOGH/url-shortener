@@ -11,7 +11,47 @@ type Bindings = {
 
 const app = new Hono<{
   Bindings: Bindings
+  Variables: {
+    cspNonce: string
+  }
 }>()
+
+// Security headers for every response. Inline scripts require a per-request
+// nonce; inline styles remain allowed until the UI is moved to a stylesheet.
+app.use('*', async (c, next) => {
+  const nonce = crypto.randomUUID().replace(/-/g, '')
+  c.set('cspNonce', nonce)
+  await next()
+
+  c.header(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "base-uri 'none'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      `script-src 'self' 'nonce-${nonce}'`,
+      "style-src 'self' 'unsafe-inline' https://fonts.xz.style https://cdn.jsdelivr.net",
+      "font-src 'self' data: https://fonts.xz.style",
+      "img-src 'self' data: blob:",
+      "connect-src 'self'",
+      "worker-src 'none'",
+      "manifest-src 'self'",
+      'upgrade-insecure-requests'
+    ].join('; ')
+  )
+  c.header('Strict-Transport-Security', 'max-age=31536000')
+  c.header('X-Content-Type-Options', 'nosniff')
+  c.header('X-Frame-Options', 'DENY')
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
+  c.header(
+    'Permissions-Policy',
+    'camera=(), geolocation=(), microphone=(), payment=(), usb=()'
+  )
+  c.header('Cross-Origin-Opener-Policy', 'same-origin')
+  c.header('Cross-Origin-Resource-Policy', 'same-origin')
+})
 
 // Apply JSX renderer to all routes
 app.all('*', renderer)
@@ -115,6 +155,7 @@ const standaloneStatusPage = (opts: {
   /** Auto-redirect after N ms (e.g. 10000) */
   redirectAfterMs?: number
   redirectHref?: string
+  nonce: string
 }) => {
   const lit =
     opts.color === 'red'
@@ -137,7 +178,7 @@ const standaloneStatusPage = (opts: {
       : ''
   const redirectScript =
     seconds > 0
-      ? `<script>
+      ? `<script nonce="${opts.nonce}">
             (function () {
               var left = ${seconds};
               var el = document.getElementById('redirect-count');
@@ -261,7 +302,8 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
       status: 404,
       homeHref: 'https://www.iasociety.org',
       redirectAfterMs: 10000,
-      redirectHref: 'https://www.iasociety.org'
+      redirectHref: 'https://www.iasociety.org',
+      nonce: c.get('cspNonce')
     })
   }
 
@@ -272,7 +314,8 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
       message:
         'This short link points to a non-http(s) URL and will not be opened.',
       color: 'red',
-      status: 400
+      status: 400,
+      nonce: c.get('cspNonce')
     })
   }
 
@@ -341,6 +384,7 @@ app.get('/admin/', (c) => {
       {focusStyles}
 
       <script
+        nonce={c.get('cspNonce')}
         dangerouslySetInnerHTML={{
           __html: `
           (function () {
@@ -863,6 +907,7 @@ app.get('/admin/history', async (c) => {
 
       {/* Client-side script: filters, copy, delete, local QR */}
       <script
+        nonce={c.get('cspNonce')}
         dangerouslySetInnerHTML={{
           __html: `
           (function () {
@@ -1254,6 +1299,7 @@ app.post('/admin/create', csrfProtect('html'), validator, async (c) => {
         </div>
 
         <script
+          nonce={c.get('cspNonce')}
           dangerouslySetInnerHTML={{
             __html: `
               (function () {
@@ -1427,7 +1473,8 @@ app.onError((err, c) => {
     heading: 'Page not available',
     message: 'An unexpected error occurred or the page is not available.',
     color: 'red',
-    status: 500
+    status: 500,
+    nonce: c.get('cspNonce')
   })
 })
 
