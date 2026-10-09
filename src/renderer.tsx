@@ -1,4 +1,5 @@
 import { jsxRenderer } from 'hono/jsx-renderer'
+import styles from './style.css?raw'
 
 export const renderer = jsxRenderer(({ children, title }) => {
   return (
@@ -6,7 +7,7 @@ export const renderer = jsxRenderer(({ children, title }) => {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link href="/static/style.css" rel="stylesheet" />
+        <style>{styles}</style>
         <title>{title}</title>
       </head>
       <body>
