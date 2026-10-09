@@ -375,6 +375,7 @@ app.get('/admin/', (c) => {
             name="url"
             autoComplete="off"
             placeholder="https://example.com/..."
+            value="https://"
             required
             class="url-input"
           />
