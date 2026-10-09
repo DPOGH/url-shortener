@@ -1,0 +1,151 @@
+:root {
+  color-scheme: dark;
+  --background: #000;
+  --surface: #111;
+  --surface-raised: #1b1b1b;
+  --text: #f5f5f5;
+  --muted: #b8b8b8;
+  --border: #444;
+  --accent: #2ea8ff;
+  --accent-hover: #72c4ff;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  background: var(--background);
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  max-width: 1100px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 1rem 2rem;
+  background: var(--background);
+  color: var(--text);
+}
+
+header {
+  margin: 0 -1rem 1.5rem;
+  padding: 1rem;
+  border-bottom: 1px solid #222;
+  background: var(--surface);
+}
+
+header h1 {
+  margin: 0;
+  font-size: clamp(1.35rem, 4vw, 2rem);
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+}
+
+h2 {
+  margin-top: 0;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 0.15em;
+  overflow-wrap: anywhere;
+}
+
+a:hover,
+a:focus-visible {
+  color: var(--accent-hover);
+}
+
+button,
+input {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+button {
+  min-height: 2.15rem;
+  padding: 0.35rem 0.7rem;
+  background: #1689dc;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled),
+button:focus-visible:not(:disabled) {
+  background: #0872be;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+input {
+  min-height: 2.15rem;
+}
+
+code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  background: var(--surface-raised);
+  color: #f1c66d;
+}
+
+table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+th,
+td {
+  overflow-wrap: anywhere;
+}
+
+th {
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  body {
+    padding-right: 0.5rem;
+    padding-left: 0.5rem;
+  }
+
+  header {
+    margin-right: -0.5rem;
+    margin-left: -0.5rem;
+  }
+
+  table {
+    font-size: 0.72rem !important;
+  }
+
+  th,
+  td {
+    min-width: 6.5rem;
+  }
+
+  th:first-child,
+  td:first-child {
+    min-width: 7.5rem;
+  }
+
+  button {
+    margin-bottom: 0.25rem;
+  }
+}
