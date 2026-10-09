@@ -857,7 +857,8 @@ const probeDestination = async (
       return { reachable, status }
     }
     return { reachable: false, error: 'redirect-limit' }
-  } catch {
+  } catch (error) {
+    console.error('Destination probe failed:', error)
     return { reachable: false, error: 'fetch-failed' }
   } finally {
     clearTimeout(timer)
