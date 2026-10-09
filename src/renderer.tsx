@@ -18,9 +18,17 @@ export const renderer = jsxRenderer<RendererEnv>(({ children, title }, c) => {
       </head>
       <body>
         <header>
-          <h1>
-            <a href="/">URL Shortener</a>
-          </h1>
+          <a class="brand" href="/admin/" aria-label="IAS URL Shortener home">
+            <span class="brand-logo">
+              <img
+                src="/assets/ias-logo.svg"
+                alt="International AIDS Society"
+                width="155"
+                height="57"
+              />
+            </span>
+            <span class="brand-title">URL Shortener</span>
+          </a>
         </header>
         <div>{children}</div>
       </body>

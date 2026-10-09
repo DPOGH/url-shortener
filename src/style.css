@@ -46,6 +46,40 @@ header h1 {
   font-size: clamp(1.35rem, 4vw, 2rem);
 }
 
+.brand,
+.standalone-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.brand:hover,
+.brand:focus-visible,
+.standalone-brand:hover,
+.standalone-brand:focus-visible {
+  color: var(--text);
+}
+
+.brand-logo {
+  display: inline-flex;
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.brand-logo img {
+  display: block;
+  width: 125px;
+  height: auto;
+}
+
+.brand-title {
+  font-size: clamp(1.2rem, 3vw, 1.7rem);
+  font-weight: 700;
+}
+
 h1,
 h2,
 h3 {
@@ -196,6 +230,10 @@ th {
   max-width: 600px;
   margin: 60px auto;
   text-align: center;
+}
+
+.standalone-brand {
+  margin-bottom: 2rem;
 }
 
 .form-row {
