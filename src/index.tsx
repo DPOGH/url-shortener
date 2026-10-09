@@ -4,6 +4,7 @@ import { renderer } from './renderer'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import QRCode from 'qrcode'
+import styles from './style.css?raw'
 
 type Bindings = {
   KV: KVNamespace
@@ -18,8 +19,8 @@ type AppEnv = {
 
 const app = new Hono<AppEnv>()
 
-// Security headers for every response. Inline scripts require a per-request
-// nonce; inline styles remain allowed until the UI is moved to a stylesheet.
+// Security headers for every response. Inline scripts and the embedded local
+// stylesheet require a per-request nonce; style attributes are not allowed.
 app.use('*', async (c, next) => {
   const nonce = crypto.randomUUID().replace(/-/g, '')
   c.set('cspNonce', nonce)
@@ -34,7 +35,7 @@ app.use('*', async (c, next) => {
       "frame-ancestors 'none'",
       "form-action 'self'",
       `script-src 'self' 'nonce-${nonce}'`,
-      "style-src 'self' 'unsafe-inline'",
+      `style-src 'self' 'nonce-${nonce}'`,
       "font-src 'self' data:",
       "img-src 'self' data: blob:",
       "connect-src 'self'",
@@ -70,58 +71,22 @@ const Semaphore = ({
   className?: string
   title?: string
 }) => {
-  const dim = '#333'
-  const colors = {
-    red: color === 'red' ? '#e63946' : dim,
-    yellow: color === 'yellow' ? '#f4a261' : dim,
-    green: color === 'green' ? '#2a9d8f' : dim
-  }
   const label =
     title ||
     (color === 'green' ? 'OK' : color === 'yellow' ? 'Check' : 'Error')
   return (
     <div
-      class={className}
+      class={`semaphore ${className || ''}`.trim()}
       role="img"
       aria-label={label}
       title={label}
-      style={{
-        display: 'inline-flex',
-        flexDirection: 'column',
-        gap: '4px',
-        padding: '8px 6px',
-        background: '#111',
-        border: '1px solid #444',
-        borderRadius: '10px',
-        verticalAlign: 'middle'
-      }}
     >
+      <span class={`semaphore-light red ${color === 'red' ? 'active' : ''}`} />
       <span
-        style={{
-          width: '14px',
-          height: '14px',
-          borderRadius: '50%',
-          background: colors.red,
-          boxShadow: color === 'red' ? '0 0 6px #e63946' : 'none'
-        }}
+        class={`semaphore-light yellow ${color === 'yellow' ? 'active' : ''}`}
       />
       <span
-        style={{
-          width: '14px',
-          height: '14px',
-          borderRadius: '50%',
-          background: colors.yellow,
-          boxShadow: color === 'yellow' ? '0 0 6px #f4a261' : 'none'
-        }}
-      />
-      <span
-        style={{
-          width: '14px',
-          height: '14px',
-          borderRadius: '50%',
-          background: colors.green,
-          boxShadow: color === 'green' ? '0 0 6px #2a9d8f' : 'none'
-        }}
+        class={`semaphore-light green ${color === 'green' ? 'active' : ''}`}
       />
     </div>
   )
@@ -177,7 +142,7 @@ const rateLimit = (
       }
       c.status(429)
       return c.render(
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+        <div class="status-layout">
           <Semaphore color="red" />
           <div>
             <h2>Too many requests</h2>
@@ -199,24 +164,6 @@ const rateLimit = (
   }
 }
 
-const focusStyles = (
-  <style>
-    {`
-      input[type="text"],
-      input[type="date"],
-      input[type="url"] {
-        outline: none;
-      }
-      input[type="text"]:focus,
-      input[type="date"]:focus,
-      input[type="url"]:focus {
-        border-color: #00b4d8;
-        box-shadow: 0 0 3px #00b4d8;
-      }
-    `}
-  </style>
-)
-
 /** Standalone HTML error page (no site chrome) with traffic light */
 const standaloneStatusPage = (opts: {
   title: string
@@ -231,16 +178,10 @@ const standaloneStatusPage = (opts: {
   redirectHref?: string
   nonce: string
 }) => {
-  const lit =
-    opts.color === 'red'
-      ? { r: '#e63946', y: '#333', g: '#333', glow: '#e63946' }
-      : opts.color === 'yellow'
-        ? { r: '#333', y: '#f4a261', g: '#333', glow: '#f4a261' }
-        : { r: '#333', y: '#333', g: '#2a9d8f', glow: '#2a9d8f' }
   const home = opts.homeHref ?? 'https://www.iasociety.org'
   const redirectHref = opts.redirectHref ?? home
   const detail = opts.detail
-    ? `<p style="color:#aaa;font-size:0.9em;">${opts.detail}</p>`
+    ? `<p class="muted">${opts.detail}</p>`
     : ''
   const seconds =
     opts.redirectAfterMs && opts.redirectAfterMs > 0
@@ -274,23 +215,23 @@ const standaloneStatusPage = (opts: {
     <title>${opts.title}</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style nonce="${opts.nonce}">${styles}</style>
   </head>
-  <body style="background:#000;color:#fff;font-family:system-ui,sans-serif;">
-    <div style="max-width:600px;margin:60px auto;text-align:center;">
-      <div role="img" aria-label="${opts.color}" title="${opts.color}"
-        style="display:inline-flex;flex-direction:column;gap:6px;padding:12px 10px;background:#111;border:1px solid #444;border-radius:14px;margin-bottom:20px;">
-        <span style="width:18px;height:18px;border-radius:50%;background:${lit.r};box-shadow:${opts.color === 'red' ? `0 0 8px ${lit.glow}` : 'none'};"></span>
-        <span style="width:18px;height:18px;border-radius:50%;background:${lit.y};box-shadow:${opts.color === 'yellow' ? `0 0 8px ${lit.glow}` : 'none'};"></span>
-        <span style="width:18px;height:18px;border-radius:50%;background:${lit.g};box-shadow:${opts.color === 'green' ? `0 0 8px ${lit.glow}` : 'none'};"></span>
+  <body>
+    <div class="standalone-status">
+      <div class="semaphore semaphore-large" role="img" aria-label="${opts.color}" title="${opts.color}">
+        <span class="semaphore-light red ${opts.color === 'red' ? 'active' : ''}"></span>
+        <span class="semaphore-light yellow ${opts.color === 'yellow' ? 'active' : ''}"></span>
+        <span class="semaphore-light green ${opts.color === 'green' ? 'active' : ''}"></span>
       </div>
       <h2>${opts.heading}</h2>
       <p>${opts.message}</p>
       ${detail}
       ${redirectNote}
-      <p style="margin-top:24px;">
-        <a href="${home}" style="color:#00b4d8;">Go to IAS</a>
+      <p class="mt-24">
+        <a href="${home}">Go to IAS</a>
         &nbsp;·&nbsp;
-        <a href="/admin/" style="color:#00b4d8;">Admin</a>
+        <a href="/admin/">Admin</a>
       </p>
     </div>
     ${redirectScript}
@@ -333,7 +274,7 @@ const csrfProtect = (
         )
       }
       return c.render(
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+        <div class="status-layout">
           <Semaphore color="red" />
           <div>
             <h2>Request blocked (CSRF)</h2>
@@ -412,14 +353,7 @@ app.get('/admin/', (c) => {
     <div>
       <h2>Create shortened URL!</h2>
       <form action="/admin/create" method="post" id="create-form">
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            flexWrap: 'wrap'
-          }}
-        >
+        <div class="form-row">
           <Semaphore color="yellow" />
           <input
             id="url-input"
@@ -428,34 +362,23 @@ app.get('/admin/', (c) => {
             autoComplete="off"
             placeholder="https://example.com/..."
             required
-            style={{
-              width: '70%',
-              minWidth: '220px',
-              padding: '6px 8px',
-              backgroundColor: '#222',
-              color: '#f5f5f5',
-              border: '1px solid #555',
-              borderRadius: '4px'
-            }}
+            class="url-input"
           />
           <button type="submit" id="create-submit">
             Create
           </button>
         </div>
-        <p
-          id="url-status"
-          style={{ marginTop: '8px', fontSize: '0.85em', color: '#ccc' }}
-        >
+        <p id="url-status" class="status-text">
           Enter an http(s) URL. On Create we check that the destination exists
           before saving.
         </p>
       </form>
 
-      <p style={{ marginTop: '10px' }}>
+      <p class="mt-10">
         <a href="/admin/history">View history</a>
+        <span> | </span>
+        <a href="/admin/audit">View audit log</a>
       </p>
-
-      {focusStyles}
 
       <script
         nonce={c.get('cspNonce')}
@@ -473,11 +396,8 @@ app.get('/admin/', (c) => {
 
             function setLight(color) {
               const map = { red: 0, yellow: 1, green: 2 };
-              const on = ['#e63946', '#f4a261', '#2a9d8f'];
               lights.forEach((el, i) => {
-                const active = map[color] === i;
-                el.style.background = active ? on[i] : '#333';
-                el.style.boxShadow = active ? '0 0 6px ' + on[i] : 'none';
+                el.classList.toggle('active', map[color] === i);
               });
             }
 
@@ -576,7 +496,7 @@ const validator = zValidator('form', schema, (result, c) => {
   if (!result.success) {
     const issue = result.error.issues[0]?.message || 'Invalid URL'
     return c.render(
-      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+      <div class="status-layout">
         <Semaphore color="red" />
         <div>
           <h2>Invalid URL</h2>
@@ -596,9 +516,70 @@ type HistoryItem = {
   key: string
   url: string
   createdAt: string
+  createdBy?: string
 }
 
 const HISTORY_KEY = '__history__'
+const AUDIT_KEY = '__audit__'
+
+type AuditItem = {
+  action: 'create' | 'delete'
+  key: string
+  url: string | null
+  actor: string
+  timestamp: string
+}
+
+const getActor = (header: (name: string) => string | undefined): string => {
+  const forwardedEmail = header('cf-access-authenticated-user-email')
+  if (forwardedEmail) return forwardedEmail
+
+  // Access always signs this token at the edge. Decode only to read the
+  // already-authenticated identity when the convenience email header is absent.
+  const token = header('cf-access-jwt-assertion')
+  const payload = token?.split('.')[1]
+  if (payload) {
+    try {
+      const raw = payload.replace(/-/g, '+').replace(/_/g, '/')
+      const normalized = raw.padEnd(Math.ceil(raw.length / 4) * 4, '=')
+      const decoded = JSON.parse(atob(normalized)) as { email?: unknown }
+      if (typeof decoded.email === 'string') return decoded.email
+    } catch {
+      // Fall through to an explicit unknown marker.
+    }
+  }
+  return 'unknown'
+}
+
+const addAuditEntry = async (kv: KVNamespace, item: AuditItem) => {
+  const json = await kv.get(AUDIT_KEY)
+  let list: AuditItem[] = []
+  if (json) {
+    try {
+      list = JSON.parse(json) as AuditItem[]
+    } catch {
+      list = []
+    }
+  }
+  list.unshift(item)
+  await kv.put(AUDIT_KEY, JSON.stringify(list.slice(0, 1000)))
+  console.log(
+    JSON.stringify({
+      event: 'short-link-audit',
+      ...item
+    })
+  )
+}
+
+const getAuditEntries = async (kv: KVNamespace): Promise<AuditItem[]> => {
+  const json = await kv.get(AUDIT_KEY)
+  if (!json) return []
+  try {
+    return JSON.parse(json) as AuditItem[]
+  } catch {
+    return []
+  }
+}
 
 const addToHistory = async (kv: KVNamespace, item: HistoryItem) => {
   const json = await kv.get(HISTORY_KEY)
@@ -929,22 +910,15 @@ app.get('/admin/history', async (c) => {
       </p>
 
       {/* Filters: text + date range */}
-      <div style={{ marginBottom: '10px', fontSize: '0.85em' }}>
-        <div style={{ marginBottom: '6px' }}>
+      <div class="history-filters">
+        <div class="mb-6">
           <label>
             Search (URL / short URL):{' '}
             <input
               id="history-search"
               type="text"
               placeholder="Filter by URL..."
-              style={{
-                width: '60%',
-                padding: '4px 6px',
-                backgroundColor: '#222',
-                color: '#f5f5f5',
-                border: '1px solid #555',
-                borderRadius: '4px'
-              }}
+              class="history-search"
             />
           </label>
         </div>
@@ -956,90 +930,34 @@ app.get('/admin/history', async (c) => {
               <input
                 id="history-from"
                 type="date"
-                style={{
-                  padding: '3px 4px',
-                  backgroundColor: '#222',
-                  color: '#f5f5f5',
-                  border: '1px solid #555',
-                  borderRadius: '4px'
-                }}
+                class="date-input"
               />
             </label>
           </span>
-          <span style={{ marginLeft: '10px' }}>
+          <span class="ml-10">
             <label>
               To:{' '}
               <input
                 id="history-to"
                 type="date"
-                style={{
-                  padding: '3px 4px',
-                  backgroundColor: '#222',
-                  color: '#f5f5f5',
-                  border: '1px solid #555',
-                  borderRadius: '4px'
-                }}
+                class="date-input"
               />
             </label>
           </span>
-          <button
-            id="history-clear-filters"
-            type="button"
-            style={{ marginLeft: '10px' }}
-          >
+          <button id="history-clear-filters" type="button" class="ml-10">
             Clear filters
           </button>
         </div>
       </div>
 
-      <table
-        id="history-table"
-        style={{
-          fontSize: '0.8em',
-          borderCollapse: 'collapse',
-          width: '100%',
-          border: '1px solid #555',
-          backgroundColor: '#111'
-        }}
-      >
+      <table id="history-table" class="history-table">
         <thead>
           <tr>
-            <th
-              style={{
-                borderBottom: '1px solid #555',
-                padding: '4px',
-                textAlign: 'left'
-              }}
-            >
-              Created at
-            </th>
-            <th
-              style={{
-                borderBottom: '1px solid #555',
-                padding: '4px',
-                textAlign: 'left'
-              }}
-            >
-              Original URL
-            </th>
-            <th
-              style={{
-                borderBottom: '1px solid #555',
-                padding: '4px',
-                textAlign: 'left'
-              }}
-            >
-              Short URL
-            </th>
-            <th
-              style={{
-                borderBottom: '1px solid #555',
-                padding: '4px',
-                textAlign: 'left'
-              }}
-            >
-              Actions
-            </th>
+            <th>Created at</th>
+            <th>Created by</th>
+            <th>Original URL</th>
+            <th>Short URL</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -1048,57 +966,22 @@ app.get('/admin/history', async (c) => {
             const exists = existsMap.get(item.key) ?? false
             return (
               <tr key={item.key} data-exists={exists ? '1' : '0'}>
-                <td
-                  class="created-at-cell"
-                  style={{
-                    padding: '4px',
-                    verticalAlign: 'top',
-                    borderTop: '1px solid #333'
-                  }}
-                >
+                <td class="created-at-cell">
                   {item.createdAt}
                 </td>
-                <td
-                  style={{
-                    padding: '4px',
-                    verticalAlign: 'top',
-                    borderTop: '1px solid #333'
-                  }}
-                >
+                <td>{item.createdBy || 'legacy / unknown'}</td>
+                <td>
                   <span
                     class="dest-dot"
                     data-url={item.url}
                     title="Checking destination..."
-                    style={{
-                      display: 'inline-block',
-                      width: '10px',
-                      height: '10px',
-                      borderRadius: '50%',
-                      background: '#f4a261',
-                      marginRight: '6px',
-                      verticalAlign: 'middle',
-                      boxShadow: '0 0 4px #f4a261'
-                    }}
                   />
                   <a href={item.url}>{item.url}</a>
                 </td>
-                <td
-                  style={{
-                    padding: '4px',
-                    verticalAlign: 'top',
-                    borderTop: '1px solid #333'
-                  }}
-                >
+                <td>
                   <a href={shortUrl}>{shortUrl}</a>
                 </td>
-                <td
-                  style={{
-                    padding: '4px',
-                    verticalAlign: 'top',
-                    whiteSpace: 'nowrap',
-                    borderTop: '1px solid #333'
-                  }}
-                >
+                <td class="actions-cell">
                   <button
                     type="button"
                     class="copy-short-btn"
@@ -1108,19 +991,17 @@ app.get('/admin/history', async (c) => {
                   </button>
                   <button
                     type="button"
-                    class="qr-copy-btn"
                     data-url={shortUrl}
                     data-key={item.key}
-                    style={{ marginLeft: '6px' }}
+                    class="qr-copy-btn ml-6"
                     disabled={!exists}
                   >
                     Copy QR
                   </button>
                   <button
                     type="button"
-                    class="delete-btn"
+                    class="delete-btn ml-6"
                     data-key={item.key}
-                    style={{ marginLeft: '6px' }}
                   >
                     Delete
                   </button>
@@ -1131,16 +1012,13 @@ app.get('/admin/history', async (c) => {
         </tbody>
       </table>
 
-      <p style={{ marginTop: '10px' }}>
+      <p class="mt-10">
         <a href="/admin/">Back to Home</a>
+        <span> | </span>
+        <a href="/admin/audit">View audit log</a>
       </p>
 
-      <p
-        id="history-status"
-        style={{ marginTop: '8px', fontSize: '0.8em', color: '#ccc' }}
-      />
-
-      {focusStyles}
+      <p id="history-status" class="history-status" />
 
       {/* Client-side script: filters, copy, delete, local QR */}
       <script
@@ -1175,11 +1053,11 @@ app.get('/admin/history', async (c) => {
 
               rows.forEach((tr) => {
                 const tds = tr.getElementsByTagName('td');
-                if (tds.length < 3) return;
+                if (tds.length < 4) return;
 
                 const createdAtText = tds[0].textContent || '';
-                const originalText = (tds[1].textContent || '').toLowerCase();
-                const shortText = (tds[2].textContent || '').toLowerCase();
+                const originalText = (tds[2].textContent || '').toLowerCase();
+                const shortText = (tds[3].textContent || '').toLowerCase();
 
                 const matchesText =
                   !text ||
@@ -1201,7 +1079,7 @@ app.get('/admin/history', async (c) => {
                   }
                 }
 
-                tr.style.display = matchesText && matchesDate ? '' : 'none';
+                tr.hidden = !(matchesText && matchesDate);
               });
             }
 
@@ -1344,15 +1222,11 @@ app.get('/admin/history', async (c) => {
             // Destination reachability — update the dot next to the original URL
             function setDestDot(dot, reachable, detail) {
               if (!dot) return;
-              if (reachable) {
-                dot.style.background = '#2a9d8f';
-                dot.style.boxShadow = '0 0 4px #2a9d8f';
-                dot.title = detail || 'Destination reachable';
-              } else {
-                dot.style.background = '#e63946';
-                dot.style.boxShadow = '0 0 4px #e63946';
-                dot.title = detail || 'Destination not reachable';
-              }
+              dot.classList.toggle('reachable', reachable);
+              dot.classList.toggle('unreachable', !reachable);
+              dot.title = detail || (
+                reachable ? 'Destination reachable' : 'Destination not reachable'
+              );
             }
 
             async function checkDestination(dot) {
@@ -1405,6 +1279,41 @@ app.get('/admin/history', async (c) => {
   )
 })
 
+app.get('/admin/audit', async (c) => {
+  const items = await getAuditEntries(c.env.KV)
+  return c.render(
+    <div>
+      <h2>Audit log</h2>
+      <p>Latest {items.length} create/delete events (maximum 1000).</p>
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Action</th>
+            <th>Short key</th>
+            <th>Original URL</th>
+            <th>User</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, index) => (
+            <tr key={`${item.timestamp}-${item.key}-${index}`}>
+              <td>{item.timestamp}</td>
+              <td>{item.action}</td>
+              <td>{item.key}</td>
+              <td>{item.url || 'not available'}</td>
+              <td>{item.actor}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p class="mt-10">
+        <a href="/admin/history">Back to history</a>
+      </p>
+    </div>
+  )
+})
+
 // Generate unique key and store URL in KV
 const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
   const uuid = crypto.randomUUID()
@@ -1438,7 +1347,7 @@ app.post(
             ? `Reason: ${probe.error}`
             : undefined
       return c.render(
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+        <div class="status-layout">
           <Semaphore color="red" />
           <div>
             <h2>Destination not reachable</h2>
@@ -1446,11 +1355,11 @@ app.post(
               The original URL does not exist or did not respond. No short link
               was created.
             </p>
-            <p style={{ fontSize: '0.85em', color: '#aaa', wordBreak: 'break-all' }}>
+            <p class="muted word-break">
               {url}
             </p>
             {detail ? (
-              <p style={{ fontSize: '0.85em', color: '#aaa' }}>{detail}</p>
+              <p class="muted">{detail}</p>
             ) : null}
             <p>
               <a href="/admin/">Back to admin</a>
@@ -1461,6 +1370,7 @@ app.post(
     }
 
     const key = await createKey(c.env.KV, url)
+    const actor = getActor((name) => c.req.header(name))
 
     const shortenUrl = new URL(`/${key}`, c.req.url)
     const shortUrlStr = shortenUrl.toString()
@@ -1468,7 +1378,15 @@ app.post(
     await addToHistory(c.env.KV, {
       key,
       url,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      createdBy: actor
+    })
+    await addAuditEntry(c.env.KV, {
+      action: 'create',
+      key,
+      url,
+      actor,
+      timestamp: new Date().toISOString()
     })
 
     const qrSvgRaw = await QRCode.toString(shortUrlStr, {
@@ -1483,58 +1401,48 @@ app.post(
 
     return c.render(
       <div>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+        <div class="status-layout">
           <Semaphore color="green" />
           <div>
             <h2>Created!</h2>
-            <p style={{ fontSize: '0.9em', color: '#aaa' }}>Short link is active.</p>
+            <p class="muted">Short link is active.</p>
           </div>
         </div>
 
-        <div style={{ marginBottom: '10px', marginTop: '12px' }}>
+        <div class="short-url-row">
           <input
             id="short-url"
             type="text"
             value={shortUrlStr}
-            style={{
-              width: '80%',
-              padding: '6px 8px',
-              backgroundColor: '#222',
-              color: '#f5f5f5',
-              border: '1px solid #555',
-              borderRadius: '4px'
-            }}
+            class="short-url-input"
             readOnly
           />
         </div>
 
-        <div style={{ marginBottom: '20px' }}>
+        <div class="mb-20">
           <button id="copy-url-btn" type="button">
             Copy URL
           </button>
           <button
             id="copy-qr-btn"
             type="button"
-            style={{ marginLeft: '10px' }}
+            class="ml-10"
           >
             Copy QR (PNG)
           </button>
-          <span
-            id="copy-status"
-            style={{ marginLeft: '10px', fontSize: '0.9em' }}
-          />
+          <span id="copy-status" class="copy-status" />
         </div>
 
-        <div style={{ marginTop: '10px' }}>
+        <div class="mt-10">
           <h3>QR Code:</h3>
           <div
             id="qr-container"
-            style={{ width: '200px', height: '200px' }}
+            class="qr-container"
             dangerouslySetInnerHTML={{ __html: qrSvg }}
           />
         </div>
 
-        <div style={{ marginTop: '10px' }}>
+        <div class="mt-10">
           <a href="/admin/">Back to Home</a>
           <span> | </span>
           <a href="/admin/history">View history</a>
@@ -1675,8 +1583,17 @@ app.post(
       )
     }
     try {
+      const url = await c.env.KV.get(key)
+      const actor = getActor((name) => c.req.header(name))
       await c.env.KV.delete(key)
       await removeFromHistory(c.env.KV, key)
+      await addAuditEntry(c.env.KV, {
+        action: 'delete',
+        key,
+        url,
+        actor,
+        timestamp: new Date().toISOString()
+      })
       return c.json({ ok: true })
     } catch (e) {
       console.error('Error deleting key from history:', e)
@@ -1696,12 +1613,12 @@ app.onError((err, c) => {
 
   if (isAdmin) {
     return c.render(
-      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+      <div class="status-layout">
         <Semaphore color="red" />
         <div>
           <h2>Something went wrong</h2>
           <p>An unexpected error occurred while processing your request.</p>
-          <p style={{ fontSize: '0.85em', color: '#aaa' }}>
+          <p class="muted">
             {err instanceof Error ? err.message : 'Unknown error'}
           </p>
           <p>

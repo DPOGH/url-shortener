@@ -1,13 +1,19 @@
 import { jsxRenderer } from 'hono/jsx-renderer'
 import styles from './style.css?raw'
 
-export const renderer = jsxRenderer(({ children, title }) => {
+type RendererEnv = {
+  Variables: {
+    cspNonce: string
+  }
+}
+
+export const renderer = jsxRenderer<RendererEnv>(({ children, title }, c) => {
   return (
     <html>
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <style>{styles}</style>
+        <style nonce={c.get('cspNonce')}>{styles}</style>
         <title>{title}</title>
       </head>
       <body>
