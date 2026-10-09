@@ -283,7 +283,7 @@ app.get('/admin', (c) => {
   return c.redirect('/admin/')
 })
 
-// Home page with form + live URL check (semaphore)
+// Home page with form — destination reachability checked on submit (not while typing)
 app.get('/admin/', (c) => {
   return c.render(
     <div>
@@ -323,7 +323,8 @@ app.get('/admin/', (c) => {
           id="url-status"
           style={{ marginTop: '8px', fontSize: '0.85em', color: '#ccc' }}
         >
-          Enter an http(s) URL — the light turns green when the format is valid.
+          Enter an http(s) URL. On Create we check that the destination exists
+          before saving.
         </p>
       </form>
 
@@ -340,8 +341,11 @@ app.get('/admin/', (c) => {
             const input = document.getElementById('url-input');
             const status = document.getElementById('url-status');
             const form = document.getElementById('create-form');
+            const submitBtn = document.getElementById('create-submit');
             const lights = form ? form.querySelectorAll('[role="img"] span') : [];
-            if (!input || lights.length < 3) return;
+            if (!input || !form || lights.length < 3) return;
+
+            let allowSubmit = false;
 
             function setLight(color) {
               const map = { red: 0, yellow: 1, green: 2 };
@@ -362,33 +366,71 @@ app.get('/admin/', (c) => {
               }
             }
 
-            function refresh() {
-              const value = (input.value || '').trim();
-              if (!value) {
-                setLight('yellow');
-                if (status) status.textContent = 'Enter an http(s) URL — the light turns green when the format is valid.';
-                return false;
-              }
-              if (isHttpUrl(value)) {
-                setLight('green');
-                if (status) status.textContent = 'URL looks valid.';
-                return true;
-              }
-              setLight('red');
-              if (status) status.textContent = 'Invalid URL. Use http:// or https:// only.';
-              return false;
-            }
-
-            input.addEventListener('input', refresh);
-            input.addEventListener('change', refresh);
-            form.addEventListener('submit', function (e) {
-              if (!refresh()) {
-                e.preventDefault();
-                setLight('red');
-                if (status) status.textContent = 'Cannot create: invalid URL.';
+            // While typing: only reset to yellow (no live destination probe)
+            input.addEventListener('input', function () {
+              allowSubmit = false;
+              setLight('yellow');
+              if (status) {
+                status.textContent =
+                  'Enter an http(s) URL. On Create we check that the destination exists before saving.';
               }
             });
-            refresh();
+
+            form.addEventListener('submit', async function (e) {
+              if (allowSubmit) {
+                allowSubmit = false;
+                return;
+              }
+              e.preventDefault();
+
+              const value = (input.value || '').trim();
+              if (!isHttpUrl(value)) {
+                setLight('red');
+                if (status) status.textContent = 'Invalid URL. Use http:// or https:// only.';
+                return;
+              }
+
+              setLight('yellow');
+              if (status) status.textContent = 'Checking destination…';
+              if (submitBtn) submitBtn.disabled = true;
+
+              try {
+                const res = await fetch(
+                  '/admin/check-destination?url=' + encodeURIComponent(value)
+                );
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.reachable) {
+                  setLight('red');
+                  const extra =
+                    data && data.status
+                      ? ' (HTTP ' + data.status + ')'
+                      : data && data.error
+                        ? ' (' + data.error + ')'
+                        : '';
+                  if (status) {
+                    status.textContent =
+                      'Destination does not exist or is unreachable' +
+                      extra +
+                      '. Short link was not created.';
+                  }
+                  return;
+                }
+
+                setLight('green');
+                if (status) status.textContent = 'Destination OK — creating short link…';
+                allowSubmit = true;
+                if (typeof form.requestSubmit === 'function') {
+                  form.requestSubmit();
+                } else {
+                  form.submit();
+                }
+              } catch (err) {
+                setLight('red');
+                if (status) status.textContent = 'Destination check failed. Try again.';
+              } finally {
+                if (submitBtn) submitBtn.disabled = false;
+              }
+            });
           })();
         `
         }}
@@ -1110,6 +1152,39 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
 app.post('/admin/create', csrfProtect('html'), validator, async (c) => {
   try {
     const { url } = c.req.valid('form')
+
+    // Server-side destination check (authoritative — blocks unreachable URLs)
+    const probe = await probeDestination(url)
+    if (!probe.reachable) {
+      const detail =
+        probe.status != null
+          ? `HTTP status: ${probe.status}`
+          : probe.error
+            ? `Reason: ${probe.error}`
+            : undefined
+      return c.render(
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+          <Semaphore color="red" />
+          <div>
+            <h2>Destination not reachable</h2>
+            <p>
+              The original URL does not exist or did not respond. No short link
+              was created.
+            </p>
+            <p style={{ fontSize: '0.85em', color: '#aaa', wordBreak: 'break-all' }}>
+              {url}
+            </p>
+            {detail ? (
+              <p style={{ fontSize: '0.85em', color: '#aaa' }}>{detail}</p>
+            ) : null}
+            <p>
+              <a href="/admin/">Back to admin</a>
+            </p>
+          </div>
+        </div>
+      )
+    }
+
     const key = await createKey(c.env.KV, url)
 
     const shortenUrl = new URL(`/${key}`, c.req.url)
