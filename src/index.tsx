@@ -643,9 +643,8 @@ app.get('/admin/history', async (c) => {
     <div>
       <h2>History (latest {items.length} entries)</h2>
       <p>
-        Showing up to 500 latest shortened URLs. Status turns green only if the
-        short link exists <em>and</em> the destination is reachable; red if the
-        destination is missing. Dot next to the original URL mirrors that check.
+        Showing up to 500 latest shortened URLs. The dot next to the original
+        URL is green when the destination is reachable and red when it is not.
       </p>
 
       {/* Filters: text + date range */}
@@ -731,15 +730,6 @@ app.get('/admin/history', async (c) => {
                 textAlign: 'left'
               }}
             >
-              Status
-            </th>
-            <th
-              style={{
-                borderBottom: '1px solid #555',
-                padding: '4px',
-                textAlign: 'left'
-              }}
-            >
               Created at
             </th>
             <th
@@ -777,29 +767,6 @@ app.get('/admin/history', async (c) => {
             const exists = existsMap.get(item.key) ?? false
             return (
               <tr key={item.key} data-exists={exists ? '1' : '0'}>
-                <td
-                  class="status-cell"
-                  style={{
-                    padding: '4px',
-                    verticalAlign: 'top',
-                    borderTop: '1px solid #333'
-                  }}
-                  title={
-                    exists
-                      ? 'Checking destination…'
-                      : 'Short link missing in KV'
-                  }
-                >
-                  <Semaphore
-                    className="status-semaphore"
-                    color={exists ? 'yellow' : 'red'}
-                    title={
-                      exists
-                        ? 'Checking destination…'
-                        : 'Short link missing in KV'
-                    }
-                  />
-                </td>
                 <td
                   class="created-at-cell"
                   style={{
@@ -926,11 +893,11 @@ app.get('/admin/history', async (c) => {
 
               rows.forEach((tr) => {
                 const tds = tr.getElementsByTagName('td');
-                if (tds.length < 4) return;
+                if (tds.length < 3) return;
 
-                const createdAtText = tds[1].textContent || '';
-                const originalText = (tds[2].textContent || '').toLowerCase();
-                const shortText = (tds[3].textContent || '').toLowerCase();
+                const createdAtText = tds[0].textContent || '';
+                const originalText = (tds[1].textContent || '').toLowerCase();
+                const shortText = (tds[2].textContent || '').toLowerCase();
 
                 const matchesText =
                   !text ||
@@ -1092,19 +1059,7 @@ app.get('/admin/history', async (c) => {
               });
             });
 
-            // Destination reachability — updates Status semaphore + original-URL dot together
-            function setLightEl(root, color) {
-              if (!root) return;
-              const lights = root.querySelectorAll('span');
-              const map = { red: 0, yellow: 1, green: 2 };
-              const on = ['#e63946', '#f4a261', '#2a9d8f'];
-              lights.forEach((el, i) => {
-                const active = map[color] === i;
-                el.style.background = active ? on[i] : '#333';
-                el.style.boxShadow = active ? '0 0 6px ' + on[i] : 'none';
-              });
-            }
-
+            // Destination reachability — update the dot next to the original URL
             function setDestDot(dot, reachable, detail) {
               if (!dot) return;
               if (reachable) {
@@ -1118,29 +1073,10 @@ app.get('/admin/history', async (c) => {
               }
             }
 
-            function applyRowStatus(tr, reachable, detail) {
-              const kvExists = tr.getAttribute('data-exists') === '1';
-              const sem = tr.querySelector('.status-semaphore');
-              const cell = tr.querySelector('.status-cell');
-              const dot = tr.querySelector('.dest-dot');
-              const ok = kvExists && reachable;
-              const title = !kvExists
-                ? 'Short link missing in KV'
-                : ok
-                  ? (detail || 'Short link OK and destination reachable')
-                  : (detail || 'Destination missing/unreachable');
-              setLightEl(sem, ok ? 'green' : 'red');
-              if (sem) sem.title = title;
-              if (cell) cell.title = title;
-              setDestDot(dot, ok, title);
-            }
-
             async function checkDestination(dot) {
-              const tr = dot.closest('tr');
               const url = dot.getAttribute('data-url');
-              if (!tr) return;
               if (!url) {
-                applyRowStatus(tr, false, 'Missing URL');
+                setDestDot(dot, false, 'Missing URL');
                 return;
               }
               try {
@@ -1149,7 +1085,7 @@ app.get('/admin/history', async (c) => {
                 );
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
-                  applyRowStatus(tr, false, 'Check failed');
+                  setDestDot(dot, false, 'Check failed');
                   return;
                 }
                 const detail = data.reachable
@@ -1157,9 +1093,9 @@ app.get('/admin/history', async (c) => {
                   : ('Destination missing/unreachable' +
                       (data.status ? ' (' + data.status + ')' : '') +
                       (data.error ? ' — ' + data.error : ''));
-                applyRowStatus(tr, !!data.reachable, detail);
+                setDestDot(dot, !!data.reachable, detail);
               } catch (e) {
-                applyRowStatus(tr, false, 'Check error');
+                setDestDot(dot, false, 'Check error');
               }
             }
 
