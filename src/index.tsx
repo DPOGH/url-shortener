@@ -1683,7 +1683,10 @@ app.post(
   }
 )
 
-app.notFound((c) => {
+// A catch-all route instead of app.notFound(): the Pages build entry registers
+// `app.notFoundHandler`, which Hono 4 no longer exposes, so unmatched paths
+// would otherwise crash with a 500.
+app.all('*', (c) => {
   if (new URL(c.req.url).pathname.startsWith('/admin')) {
     c.status(404)
     return c.render(
