@@ -764,11 +764,16 @@ const resolvePublicAddresses = async (
       `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${type}`,
       {
         headers: { Accept: 'application/dns-json' },
-        redirect: 'error',
+        redirect: 'manual',
         signal
       }
     )
-    if (!response.ok) throw new Error('dns-check-failed')
+    if (
+      !response.ok ||
+      (response.status >= 300 && response.status < 400)
+    ) {
+      throw new Error('dns-check-failed')
+    }
     const body = (await response.json()) as DnsJsonResponse
     if (body.Status !== 0) return []
     const expectedType = type === 'A' ? 1 : 28
