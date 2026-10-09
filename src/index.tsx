@@ -9,12 +9,14 @@ type Bindings = {
   KV: KVNamespace
 }
 
-const app = new Hono<{
+type AppEnv = {
   Bindings: Bindings
   Variables: {
     cspNonce: string
   }
-}>()
+}
+
+const app = new Hono<AppEnv>()
 
 // Security headers for every response. Inline scripts require a per-request
 // nonce; inline styles remain allowed until the UI is moved to a stylesheet.
@@ -123,6 +125,78 @@ const Semaphore = ({
       />
     </div>
   )
+}
+
+/**
+ * Best-effort fixed-window rate limiting backed by Cloudflare KV.
+ * Access identity is preferred; Cloudflare's connecting IP is the fallback.
+ */
+const rateLimit = (
+  scope: string,
+  limit: number,
+  windowSeconds: number,
+  mode: 'html' | 'json'
+): MiddlewareHandler<AppEnv> => {
+  return async (c, next) => {
+    const identity =
+      c.req.header('cf-access-authenticated-user-email') ||
+      c.req.header('cf-connecting-ip') ||
+      'unknown'
+    const digest = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(identity.toLowerCase())
+    )
+    const identityHash = Array.from(new Uint8Array(digest))
+      .slice(0, 16)
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
+    const now = Math.floor(Date.now() / 1000)
+    const windowStart = Math.floor(now / windowSeconds) * windowSeconds
+    const resetAt = windowStart + windowSeconds
+    const key = `__rate__:${scope}:${windowStart}:${identityHash}`
+    const current = Number.parseInt((await c.env.KV.get(key)) || '0', 10) || 0
+
+    c.header('X-RateLimit-Limit', String(limit))
+    c.header('X-RateLimit-Remaining', String(Math.max(0, limit - current - 1)))
+    c.header('X-RateLimit-Reset', String(resetAt))
+
+    if (current >= limit) {
+      const retryAfter = Math.max(1, resetAt - now)
+      c.header('Retry-After', String(retryAfter))
+      c.header('X-RateLimit-Remaining', '0')
+      if (mode === 'json') {
+        return c.json(
+          {
+            ok: false,
+            error: 'rate-limit',
+            message: `Too many requests. Try again in ${retryAfter} seconds.`,
+            retryAfter
+          },
+          429
+        )
+      }
+      return c.render(
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+          <Semaphore color="red" />
+          <div>
+            <h2>Too many requests</h2>
+            <p>
+              Please wait {retryAfter} seconds before trying this action again.
+            </p>
+            <p>
+              <a href="/admin/">Back to admin</a>
+            </p>
+          </div>
+        </div>,
+        undefined
+      )
+    }
+
+    await c.env.KV.put(key, String(current + 1), {
+      expirationTtl: windowSeconds + 60
+    })
+    await next()
+  }
 }
 
 const focusStyles = (
@@ -638,17 +712,21 @@ const probeDestination = async (
 }
 
 // Check destination URL reachability (used by history page)
-app.get('/admin/check-destination', async (c) => {
-  const url = c.req.query('url') || ''
-  const result = await probeDestination(url)
-  return c.json({
-    ok: true,
-    url,
-    reachable: result.reachable,
-    status: result.status ?? null,
-    error: result.error ?? null
-  })
-})
+app.get(
+  '/admin/check-destination',
+  rateLimit('destination-check', 300, 60, 'json'),
+  async (c) => {
+    const url = c.req.query('url') || ''
+    const result = await probeDestination(url)
+    return c.json({
+      ok: true,
+      url,
+      reachable: result.reachable,
+      status: result.status ?? null,
+      error: result.error ?? null
+    })
+  }
+)
 
 // Local QR SVG for a short key (Workers-safe; no third-party API / no canvas)
 app.get('/admin/qr/:key{[0-9a-z]{6}}', async (c) => {
@@ -1182,7 +1260,12 @@ const createKey = async (kv: KVNamespace, url: string): Promise<string> => {
 }
 
 // Create shortened URL + QR (SVG 200px) + copy & PNG buttons
-app.post('/admin/create', csrfProtect('html'), validator, async (c) => {
+app.post(
+  '/admin/create',
+  rateLimit('create', 30, 600, 'html'),
+  csrfProtect('html'),
+  validator,
+  async (c) => {
   try {
     const { url } = c.req.valid('form')
 
@@ -1416,11 +1499,13 @@ app.post('/admin/create', csrfProtect('html'), validator, async (c) => {
     console.error('Error in /admin/create handler:', e)
     throw e
   }
-})
+  }
+)
 
 // Delete single entry (KV key + history) — key format constrained
 app.post(
   '/admin/history/delete/:key{[0-9a-z]{6}}',
+  rateLimit('delete', 100, 600, 'json'),
   csrfProtect('json'),
   async (c) => {
     const key = c.req.param('key')
