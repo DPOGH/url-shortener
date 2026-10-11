@@ -119,7 +119,7 @@ The GitHub-connected workflow is preferred.
 | KV key | Content |
 | --- | --- |
 | `<six-character-key>` | Destination URL |
-| `__history__` | Latest 500 History records |
+| `__history__` | Latest 5000 History records (page shows 100 at a time) |
 | `__audit__` | Latest 1000 create/delete events |
 | `__rate__:*` | Temporary rate-limit counters |
 

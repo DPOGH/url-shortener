@@ -13,6 +13,7 @@ export const renderer = jsxRenderer<RendererEnv>(({ children, title }, c) => {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="/assets/ias-icon.svg" type="image/svg+xml" />
         <style nonce={c.get('cspNonce')}>{styles}</style>
         <title>{title}</title>
       </head>
