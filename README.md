@@ -76,10 +76,14 @@ Before submitting changes:
 
 ```bash
 npm ci
+npm test
 npm run build
 npm audit --audit-level=low
 npx wrangler deploy --dry-run
 ```
+
+Automated tests cover SSRF host/IP filtering, CSRF protection, create/delete
+flows, redirects, favicon/404 pages, CSP headers, and admin rate limits.
 
 ## Configuration
 
