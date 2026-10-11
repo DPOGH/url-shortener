@@ -13,7 +13,9 @@ ID. Short URLs remain public so recipients can open them without signing in.
 - SSRF-safe reachability checks
 - Local QR code generation with no third-party service
 - Searchable History with destination status indicators
-- Create/delete audit log with authenticated user identity
+- Soft delete with Trash restore / permanent purge
+- Create/delete/restore/purge audit log with authenticated user identity
+- Optional webhook alerts for unhandled errors
 - Strict security headers, CSRF protection, and rate limiting
 - No automatic expiration for links or History
 
@@ -36,8 +38,9 @@ The main application is in `src/index.tsx`, the shared renderer in
 | Route | Access | Purpose |
 | --- | --- | --- |
 | `/admin/` | Authenticated | Create a short link |
-| `/admin/history` | Authenticated | Review and delete links |
-| `/admin/audit` | Authenticated | Review create/delete events |
+| `/admin/history` | Authenticated | Review and soft-delete links |
+| `/admin/trash` | Authenticated | Restore or permanently purge deleted links |
+| `/admin/audit` | Authenticated | Review create/delete/restore/purge events |
 | `/<six-character-key>` | Public | Redirect to the destination |
 
 Missing links display an error page and redirect to
@@ -124,7 +127,8 @@ The GitHub-connected workflow is preferred.
 | --- | --- |
 | `<six-character-key>` | Destination URL |
 | `__history__` | Latest 5000 History records (page shows 100 at a time) |
-| `__audit__` | Latest 1000 create/delete events |
+| `__trash__` | Latest 1000 soft-deleted links |
+| `__audit__` | Latest 1000 create/delete/restore/purge events |
 | `__rate__:*` | Temporary rate-limit counters |
 
 History and audit lists have count limits but no time-based expiration.
@@ -155,9 +159,20 @@ does not merge updates automatically.
 
 Use:
 
-- `/admin/history` to inspect destinations and remove links;
-- `/admin/audit` to identify who created or deleted a link;
+- `/admin/history` to inspect destinations and move links to Trash;
+- `/admin/trash` to restore or permanently purge deleted links;
+- `/admin/audit` to identify who created, deleted, restored, or purged a link;
 - Cloudflare Worker logs for runtime errors and structured audit events.
+
+### Error alerts
+
+Unhandled Worker errors are always written to Cloudflare logs. To also receive a
+Teams or Slack message, set the secret `ALERT_WEBHOOK_URL` to an incoming
+webhook URL in the Cloudflare dashboard (or with
+`wrangler secret put ALERT_WEBHOOK_URL`).
+
+Also enable Cloudflare Notifications for Worker error spikes if you want
+dashboard/email alerts without a webhook.
 
 ## License
 

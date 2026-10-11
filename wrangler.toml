@@ -13,6 +13,12 @@ preview_urls = false
 binding = "KV"
 id = "028b8fbf405f440f8910dfcc0612483b"
 
+# Optional error-alert webhook (Teams/Slack incoming webhook URL).
+# Set in the Cloudflare dashboard as a secret/environment variable named
+# ALERT_WEBHOOK_URL, or with: wrangler secret put ALERT_WEBHOOK_URL
+# [vars]
+# ALERT_WEBHOOK_URL = ""
+
 [observability]
 [observability.logs]
 enabled = true
