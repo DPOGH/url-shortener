@@ -11,6 +11,8 @@ import { isHttpUrl, probeDestination } from './ssrf'
 
 type Bindings = {
   KV: KVNamespace
+  /** Optional Teams/Slack incoming webhook for unhandled error alerts. */
+  ALERT_WEBHOOK_URL?: string
 }
 
 type AppEnv = {
@@ -389,6 +391,8 @@ app.get('/admin/', (c) => {
       <p class="mt-10">
         <a href="/admin/history">View history</a>
         <span> | </span>
+        <a href="/admin/trash">Trash</a>
+        <span> | </span>
         <a href="/admin/audit">View audit log</a>
       </p>
 
@@ -536,9 +540,20 @@ type HistoryItem = {
 
 const HISTORY_KEY = '__history__'
 const AUDIT_KEY = '__audit__'
+const TRASH_KEY = '__trash__'
+const TRASH_MAX_ITEMS = 1000
+
+type TrashItem = {
+  key: string
+  url: string
+  createdAt: string | null
+  createdBy: string | null
+  deletedAt: string
+  deletedBy: string
+}
 
 type AuditItem = {
-  action: 'create' | 'delete'
+  action: 'create' | 'delete' | 'restore' | 'purge'
   key: string
   url: string | null
   actor: string
@@ -623,18 +638,82 @@ const getHistory = async (kv: KVNamespace): Promise<HistoryItem[]> => {
   }
 }
 
-// Remove single entry from history array
-const removeFromHistory = async (kv: KVNamespace, keyToRemove: string) => {
+// Remove single entry from history array; returns the removed item when found.
+const removeFromHistory = async (
+  kv: KVNamespace,
+  keyToRemove: string
+): Promise<HistoryItem | null> => {
   const json = await kv.get(HISTORY_KEY)
-  if (!json) return
+  if (!json) return null
   let list: HistoryItem[]
   try {
     list = JSON.parse(json) as HistoryItem[]
   } catch {
-    return
+    return null
   }
+  const removed = list.find((item) => item.key === keyToRemove) || null
   const filtered = list.filter((item) => item.key !== keyToRemove)
   await kv.put(HISTORY_KEY, JSON.stringify(filtered))
+  return removed
+}
+
+const getTrash = async (kv: KVNamespace): Promise<TrashItem[]> => {
+  const json = await kv.get(TRASH_KEY)
+  if (!json) return []
+  try {
+    return JSON.parse(json) as TrashItem[]
+  } catch {
+    return []
+  }
+}
+
+const putTrash = async (kv: KVNamespace, list: TrashItem[]) => {
+  await kv.put(TRASH_KEY, JSON.stringify(list.slice(0, TRASH_MAX_ITEMS)))
+}
+
+const addToTrash = async (kv: KVNamespace, item: TrashItem) => {
+  const list = await getTrash(kv)
+  const withoutKey = list.filter((entry) => entry.key !== item.key)
+  withoutKey.unshift(item)
+  await putTrash(kv, withoutKey)
+}
+
+const removeFromTrash = async (
+  kv: KVNamespace,
+  keyToRemove: string
+): Promise<TrashItem | null> => {
+  const list = await getTrash(kv)
+  const removed = list.find((item) => item.key === keyToRemove) || null
+  if (!removed) return null
+  await putTrash(
+    kv,
+    list.filter((item) => item.key !== keyToRemove)
+  )
+  return removed
+}
+
+const notifyErrorAlert = async (
+  webhookUrl: string | undefined,
+  detail: { path: string; message: string; stack?: string }
+) => {
+  if (!webhookUrl) return
+  try {
+    const text = [
+      'toias.link unhandled error',
+      `Path: ${detail.path}`,
+      `Message: ${detail.message}`,
+      detail.stack ? `Stack: ${detail.stack.slice(0, 500)}` : null
+    ]
+      .filter(Boolean)
+      .join('\n')
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    })
+  } catch (error) {
+    console.error('Alert webhook failed:', error)
+  }
 }
 
 // Check destination URL reachability (used by history page)
@@ -808,6 +887,8 @@ app.get('/admin/history', async (c) => {
       <p class="mt-10">
         <a href="/admin/">Back to Home</a>
         <span> | </span>
+        <a href="/admin/trash">Trash</a>
+        <span> | </span>
         <a href="/admin/audit">View audit log</a>
       </p>
 
@@ -951,7 +1032,7 @@ app.get('/admin/history', async (c) => {
               btn.addEventListener('click', async () => {
                 const key = btn.getAttribute('data-key');
                 if (!key) return;
-                if (!confirm('Delete this short URL?')) return;
+                if (!confirm('Move this short URL to Trash? You can restore it later.')) return;
 
                 try {
                   const res = await fetch('/admin/history/delete/' + encodeURIComponent(key), {
@@ -969,7 +1050,7 @@ app.get('/admin/history', async (c) => {
                   if (tr && tr.parentNode) {
                     tr.parentNode.removeChild(tr);
                   }
-                  setStatus('Deleted');
+                  setStatus('Moved to Trash');
                   applyFilters();
                 } catch (e) {
                   setStatus('Delete error');
@@ -1125,7 +1206,9 @@ app.get('/admin/audit', async (c) => {
   return c.render(
     <div>
       <h2>Audit log</h2>
-      <p>Latest {items.length} create/delete events (maximum 1000).</p>
+      <p>
+        Latest {items.length} create/delete/restore/purge events (maximum 1000).
+      </p>
       <table class="history-table">
         <thead>
           <tr>
@@ -1150,6 +1233,8 @@ app.get('/admin/audit', async (c) => {
       </table>
       <p class="mt-10">
         <a href="/admin/history">Back to history</a>
+        <span> | </span>
+        <a href="/admin/trash">Trash</a>
       </p>
     </div>
   )
@@ -1410,7 +1495,7 @@ app.post(
   }
 )
 
-// Delete single entry (KV key + history) — key format constrained
+// Soft-delete: stop the redirect, remove from History, keep a Trash copy.
 app.post(
   '/admin/history/delete/:key{[0-9a-z]{6}}',
   rateLimit('delete', 100, 600, 'json'),
@@ -1425,9 +1510,23 @@ app.post(
     }
     try {
       const url = await c.env.KV.get(key)
+      if (url === null) {
+        return c.json(
+          { ok: false, error: 'not-found', message: 'Short link not found' },
+          404
+        )
+      }
       const actor = getActor((name) => c.req.header(name))
+      const historyItem = await removeFromHistory(c.env.KV, key)
       await c.env.KV.delete(key)
-      await removeFromHistory(c.env.KV, key)
+      await addToTrash(c.env.KV, {
+        key,
+        url,
+        createdAt: historyItem?.createdAt || null,
+        createdBy: historyItem?.createdBy || null,
+        deletedAt: new Date().toISOString(),
+        deletedBy: actor
+      })
       await addAuditEntry(c.env.KV, {
         action: 'delete',
         key,
@@ -1435,11 +1534,200 @@ app.post(
         actor,
         timestamp: new Date().toISOString()
       })
-      return c.json({ ok: true })
+      return c.json({ ok: true, trashed: true })
     } catch (e) {
       console.error('Error deleting key from history:', e)
       return c.json(
         { ok: false, error: 'delete-failed', message: 'Delete failed' },
+        500
+      )
+    }
+  }
+)
+
+app.get('/admin/trash', async (c) => {
+  const items = await getTrash(c.env.KV)
+  return c.render(
+    <div>
+      <h2>Trash ({items.length})</h2>
+      <p>
+        Deleted short links stay here until restored or permanently purged.
+        Restored links keep the same six-character key when still available.
+      </p>
+      <table id="trash-table" class="history-table">
+        <thead>
+          <tr>
+            <th>Deleted at</th>
+            <th>Deleted by</th>
+            <th>Original URL</th>
+            <th>Short key</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.key}>
+              <td>{item.deletedAt}</td>
+              <td>{item.deletedBy}</td>
+              <td class="word-break">{item.url}</td>
+              <td>{item.key}</td>
+              <td class="actions-cell">
+                <button
+                  type="button"
+                  class="restore-btn"
+                  data-key={item.key}
+                >
+                  Restore
+                </button>
+                <button
+                  type="button"
+                  class="purge-btn ml-6"
+                  data-key={item.key}
+                >
+                  Delete forever
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p class="mt-10">
+        <a href="/admin/history">Back to history</a>
+        <span> | </span>
+        <a href="/admin/">Back to Home</a>
+      </p>
+      <p id="trash-status" class="history-status" />
+      <script
+        nonce={c.get('cspNonce')}
+        dangerouslySetInnerHTML={{
+          __html: `
+          (function () {
+            const statusEl = document.getElementById('trash-status');
+            function setStatus(msg) {
+              if (!statusEl) return;
+              statusEl.textContent = msg;
+              if (msg) setTimeout(() => { statusEl.textContent = ''; }, 2500);
+            }
+            async function postAction(path, key) {
+              const res = await fetch(path + encodeURIComponent(key), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                setStatus((data && data.message) || 'Action failed');
+                return false;
+              }
+              return true;
+            }
+            document.querySelectorAll('.restore-btn').forEach((btn) => {
+              btn.addEventListener('click', async () => {
+                const key = btn.getAttribute('data-key');
+                if (!key) return;
+                if (!confirm('Restore this short URL?')) return;
+                if (!(await postAction('/admin/trash/restore/', key))) return;
+                const tr = btn.closest('tr');
+                if (tr && tr.parentNode) tr.parentNode.removeChild(tr);
+                setStatus('Restored');
+              });
+            });
+            document.querySelectorAll('.purge-btn').forEach((btn) => {
+              btn.addEventListener('click', async () => {
+                const key = btn.getAttribute('data-key');
+                if (!key) return;
+                if (!confirm('Permanently delete this short URL? This cannot be undone.')) return;
+                if (!(await postAction('/admin/trash/purge/', key))) return;
+                const tr = btn.closest('tr');
+                if (tr && tr.parentNode) tr.parentNode.removeChild(tr);
+                setStatus('Permanently deleted');
+              });
+            });
+          })();
+        `
+        }}
+      />
+    </div>
+  )
+})
+
+app.post(
+  '/admin/trash/restore/:key{[0-9a-z]{6}}',
+  rateLimit('restore', 100, 600, 'json'),
+  csrfProtect('json'),
+  async (c) => {
+    const key = c.req.param('key')
+    try {
+      const existing = await c.env.KV.get(key)
+      if (existing !== null) {
+        return c.json(
+          {
+            ok: false,
+            error: 'key-in-use',
+            message: 'That short key is already in use. Purge the trash entry instead.'
+          },
+          409
+        )
+      }
+      const item = await removeFromTrash(c.env.KV, key)
+      if (!item) {
+        return c.json(
+          { ok: false, error: 'not-found', message: 'Trash entry not found' },
+          404
+        )
+      }
+      const actor = getActor((name) => c.req.header(name))
+      await c.env.KV.put(key, item.url)
+      await addToHistory(c.env.KV, {
+        key,
+        url: item.url,
+        createdAt: item.createdAt || new Date().toISOString(),
+        createdBy: item.createdBy || actor
+      })
+      await addAuditEntry(c.env.KV, {
+        action: 'restore',
+        key,
+        url: item.url,
+        actor,
+        timestamp: new Date().toISOString()
+      })
+      return c.json({ ok: true })
+    } catch (e) {
+      console.error('Error restoring key from trash:', e)
+      return c.json(
+        { ok: false, error: 'restore-failed', message: 'Restore failed' },
+        500
+      )
+    }
+  }
+)
+
+app.post(
+  '/admin/trash/purge/:key{[0-9a-z]{6}}',
+  rateLimit('purge', 100, 600, 'json'),
+  csrfProtect('json'),
+  async (c) => {
+    const key = c.req.param('key')
+    try {
+      const item = await removeFromTrash(c.env.KV, key)
+      if (!item) {
+        return c.json(
+          { ok: false, error: 'not-found', message: 'Trash entry not found' },
+          404
+        )
+      }
+      const actor = getActor((name) => c.req.header(name))
+      await addAuditEntry(c.env.KV, {
+        action: 'purge',
+        key,
+        url: item.url,
+        actor,
+        timestamp: new Date().toISOString()
+      })
+      return c.json({ ok: true })
+    } catch (e) {
+      console.error('Error purging key from trash:', e)
+      return c.json(
+        { ok: false, error: 'purge-failed', message: 'Permanent delete failed' },
         500
       )
     }
@@ -1476,10 +1764,21 @@ app.all('*', (c) => {
 })
 
 // Clearer global errors (no silent redirect to iasociety.org)
-app.onError((err, c) => {
+app.onError(async (err, c) => {
   console.error('Unhandled error:', err)
   const path = new URL(c.req.url).pathname
   const isAdmin = path.startsWith('/admin')
+  const message = err instanceof Error ? err.message : 'Unknown error'
+  const alertPromise = notifyErrorAlert(c.env.ALERT_WEBHOOK_URL, {
+    path,
+    message,
+    stack: err instanceof Error ? err.stack : undefined
+  })
+  if (c.executionCtx?.waitUntil) {
+    c.executionCtx.waitUntil(alertPromise)
+  } else {
+    void alertPromise
+  }
 
   if (isAdmin) {
     return c.render(
@@ -1488,9 +1787,7 @@ app.onError((err, c) => {
         <div>
           <h2>Something went wrong</h2>
           <p>An unexpected error occurred while processing your request.</p>
-          <p class="muted">
-            {err instanceof Error ? err.message : 'Unknown error'}
-          </p>
+          <p class="muted">{message}</p>
           <p>
             <a href="/admin/">Back to admin</a>
           </p>
