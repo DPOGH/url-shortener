@@ -204,9 +204,20 @@ describe('URL shortener routes', () => {
       env
     )
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true })
+    expect(await res.json()).toEqual({ ok: true, trashed: true })
     expect(await kv.get('abc123')).toBeNull()
     expect(JSON.parse((await kv.get('__history__')) || '[]')).toEqual([])
+
+    const trash = JSON.parse((await kv.get('__trash__')) || '[]') as Array<{
+      key: string
+      url: string
+      deletedBy: string
+    }>
+    expect(trash[0]).toMatchObject({
+      key: 'abc123',
+      url: 'https://example.com/x',
+      deletedBy: 'deleter@iasociety.org'
+    })
 
     const audit = JSON.parse((await kv.get('__audit__')) || '[]') as Array<{
       action: string
@@ -218,6 +229,24 @@ describe('URL shortener routes', () => {
       actor: 'deleter@iasociety.org',
       key: 'abc123'
     })
+
+    const restore = await request(
+      '/admin/trash/restore/abc123',
+      {
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Access-Authenticated-User-Email': 'restorer@iasociety.org',
+          'Content-Type': 'application/json'
+        }
+      },
+      env
+    )
+    expect(restore.status).toBe(200)
+    expect(await restore.json()).toEqual({ ok: true })
+    expect(await kv.get('abc123')).toBe('https://example.com/x')
+    expect(JSON.parse((await kv.get('__trash__')) || '[]')).toEqual([])
   })
 
   it('rate-limits destination checks', async () => {
