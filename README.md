@@ -121,12 +121,19 @@ Cloudflare configuration is stored in `wrangler.toml`. The application requires
 a KV namespace bound as `KV`.
 
 ```toml
-workers_dev = false
+workers_dev = true   # temporary hotfix — see below
 preview_urls = false
 ```
 
-These settings prevent alternate Cloudflare hostnames from bypassing the Access
-policy on `toias.link`.
+`preview_urls` stays disabled. `workers_dev` is temporarily **enabled** because
+Cloudflare Access currently completes login on
+`url-shortener.it-5e9.workers.dev`. With `workers_dev = false`, that callback
+returned 404 and blocked admin access.
+
+**Required Cloudflare follow-up:** in Zero Trust → Access → Applications, set
+the application domain to **only** `toias.link` and remove any `*.workers.dev`
+domains. Then set `workers_dev = false` again so alternate hostnames cannot
+bypass Access.
 
 Never commit API tokens, Access credentials, or `.dev.vars`.
 
