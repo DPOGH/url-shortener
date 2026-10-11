@@ -18,6 +18,33 @@ ID. Short URLs remain public so recipients can open them without signing in.
 - Optional webhook alerts for unhandled errors
 - Strict security headers, CSRF protection, and rate limiting
 - No automatic expiration for links or History
+- Copy URL and QR actions
+- Weekly Dependabot update checks
+
+## Screenshots
+
+Captured from the running application (local Worker preview). You can replace
+these with production captures from `toias.link` if preferred.
+
+### Create
+
+![Create page](docs/screenshots/create.png)
+
+### History
+
+![History page](docs/screenshots/history.png)
+
+### Trash
+
+![Trash page](docs/screenshots/trash.png)
+
+### Missing short link
+
+![Missing link page](docs/screenshots/missing-link.png)
+
+### Audit log
+
+![Audit log](docs/screenshots/audit.png)
 
 ## Stack
 
