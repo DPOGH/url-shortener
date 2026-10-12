@@ -17,12 +17,12 @@ preview_urls = false
 binding = "KV"
 id = "028b8fbf405f440f8910dfcc0612483b"
 
-# Optional secrets / vars (prefer Cloudflare dashboard for production):
+# Optional secrets (prefer Cloudflare dashboard for production):
 # - ALERT_WEBHOOK_URL: Teams/Slack incoming webhook for unhandled errors
-# - SUPERADMIN_EMAILS: bootstrap superadmins (everyone else is user on Access login)
-# Example:
-# [vars]
-# SUPERADMIN_EMAILS = "dario.porru@iasociety.org"
+#
+# Runtime Worker vars (not Build variables — those do not reach c.env):
+[vars]
+SUPERADMIN_EMAILS = "dario.porru@iasociety.org"
 
 
 [observability]

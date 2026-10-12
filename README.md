@@ -209,9 +209,11 @@ Use:
 - Superadmins can manage any link and open `/admin/roles` to grant or revoke
   `superadmin` for other IAS emails. The `user` role is never assigned manually.
 - Only superadmin grants are stored in KV (`__roles__`).
-- Set Worker variable `SUPERADMIN_EMAILS` once as bootstrap (for example
-  `dario.porru@iasociety.org`) so the first superadmin can sign in and promote
-  others. Bootstrap entries are managed via that env var.
+- Bootstrap superadmins via runtime Worker var `SUPERADMIN_EMAILS` (set in
+  `wrangler.toml` `[vars]` or Worker **Settings → Variables**, not Build
+  variables). Example: `dario.porru@iasociety.org`.
+- Admin pages show **Signed in as …** and **Logout**
+  (`/cdn-cgi/access/logout`) to clear the Cloudflare Access session cookie.
 - The last effective superadmin cannot be removed.
 
 ### Find missing links
