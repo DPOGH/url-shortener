@@ -255,6 +255,97 @@ describe('URL shortener routes', () => {
     expect(await kv.get('abc123')).toBe('https://example.com/x')
   })
 
+  it('lets superadmins assign and remove roles', async () => {
+    const forbidden = await request(
+      '/admin/roles',
+      {
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Access-Authenticated-User-Email': 'user@iasociety.org',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: 'new.admin@iasociety.org',
+          role: 'superadmin'
+        })
+      },
+      env
+    )
+    expect(forbidden.status).toBe(403)
+
+    const assigned = await request(
+      '/admin/roles',
+      {
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Access-Authenticated-User-Email': 'super@iasociety.org',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: 'new.admin@iasociety.org',
+          role: 'superadmin'
+        })
+      },
+      env
+    )
+    expect(assigned.status).toBe(200)
+    const roles = JSON.parse((await kv.get('__roles__')) || '{}') as Record<
+      string,
+      string
+    >
+    expect(roles['new.admin@iasociety.org']).toBe('superadmin')
+
+    await kv.put('role01', 'https://example.com/role')
+    await kv.put(
+      '__history__',
+      JSON.stringify([
+        {
+          key: 'role01',
+          url: 'https://example.com/role',
+          createdAt: new Date().toISOString(),
+          createdBy: 'owner@iasociety.org'
+        }
+      ])
+    )
+    const asNewSuper = await request(
+      '/admin/history/delete/role01',
+      {
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Access-Authenticated-User-Email': 'new.admin@iasociety.org',
+          'Content-Type': 'application/json'
+        }
+      },
+      env
+    )
+    expect(asNewSuper.status).toBe(200)
+
+    const demote = await request(
+      '/admin/roles',
+      {
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Access-Authenticated-User-Email': 'super@iasociety.org',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: 'new.admin@iasociety.org',
+          role: 'user'
+        })
+      },
+      env
+    )
+    expect(demote.status).toBe(200)
+  })
+
   it('rebuilds orphan short links into History', async () => {
     await kv.put('orphan', 'https://example.com/orphan')
     await kv.put('listed', 'https://example.com/listed')

@@ -363,7 +363,8 @@ app.get('/admin', (c) => {
 })
 
 // Home page with form — destination reachability checked on submit (not while typing)
-app.get('/admin/', (c) => {
+app.get('/admin/', async (c) => {
+  const { isSuperadmin } = await loadAuthz(c)
   return c.render(
     <div>
       <h2>Create shortened URL!</h2>
@@ -390,13 +391,7 @@ app.get('/admin/', (c) => {
         </p>
       </form>
 
-      <p class="mt-10">
-        <a href="/admin/history">View history</a>
-        <span> | </span>
-        <a href="/admin/trash">Trash</a>
-        <span> | </span>
-        <a href="/admin/audit">View audit log</a>
-      </p>
+      {adminNav(isSuperadmin)}
 
       <script
         nonce={c.get('cspNonce')}
@@ -555,12 +550,18 @@ type TrashItem = {
 }
 
 type AuditItem = {
-  action: 'create' | 'delete' | 'restore' | 'purge'
+  action: 'create' | 'delete' | 'restore' | 'purge' | 'role-set'
   key: string
   url: string | null
   actor: string
   timestamp: string
 }
+
+type Role = 'user' | 'superadmin'
+type RolesMap = Record<string, Role>
+
+const ROLES_KEY = '__roles__'
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const getActor = (header: (name: string) => string | undefined): string => {
   const forwardedEmail = header('cf-access-authenticated-user-email')
@@ -583,7 +584,7 @@ const getActor = (header: (name: string) => string | undefined): string => {
   return 'unknown'
 }
 
-const parseSuperadminEmails = (raw: string | undefined): Set<string> =>
+const parseBootstrapSuperadmins = (raw: string | undefined): Set<string> =>
   new Set(
     (raw || '')
       .split(',')
@@ -591,21 +592,105 @@ const parseSuperadminEmails = (raw: string | undefined): Set<string> =>
       .filter(Boolean)
   )
 
-const isSuperadmin = (actor: string, superadmins: Set<string>): boolean =>
-  actor !== 'unknown' && superadmins.has(actor.toLowerCase())
+const getRolesMap = async (kv: KVNamespace): Promise<RolesMap> => {
+  const json = await kv.get(ROLES_KEY)
+  if (!json) return {}
+  try {
+    const parsed = JSON.parse(json) as RolesMap
+    const clean: RolesMap = {}
+    for (const [email, role] of Object.entries(parsed || {})) {
+      const key = email.trim().toLowerCase()
+      if (!EMAIL_RE.test(key)) continue
+      if (role === 'user' || role === 'superadmin') clean[key] = role
+    }
+    return clean
+  } catch {
+    return {}
+  }
+}
+
+const putRolesMap = async (kv: KVNamespace, roles: RolesMap) => {
+  await kv.put(ROLES_KEY, JSON.stringify(roles))
+}
+
+/** KV role wins; otherwise SUPERADMIN_EMAILS bootstrap; default user. */
+const resolveRole = (
+  actor: string,
+  roles: RolesMap,
+  bootstrap: Set<string>
+): Role => {
+  if (actor === 'unknown') return 'user'
+  const email = actor.toLowerCase()
+  if (roles[email] === 'superadmin' || roles[email] === 'user') {
+    return roles[email]
+  }
+  if (bootstrap.has(email)) return 'superadmin'
+  return 'user'
+}
+
+const isActorSuperadmin = (
+  actor: string,
+  roles: RolesMap,
+  bootstrap: Set<string>
+): boolean => resolveRole(actor, roles, bootstrap) === 'superadmin'
+
+const listEffectiveSuperadmins = (
+  roles: RolesMap,
+  bootstrap: Set<string>
+): string[] => {
+  const emails = new Set<string>(bootstrap)
+  for (const [email, role] of Object.entries(roles)) {
+    if (role === 'superadmin') emails.add(email)
+    if (role === 'user') emails.delete(email)
+  }
+  return [...emails].sort()
+}
 
 /** Delete/restore/purge: creator or superadmin. Legacy (no owner) = superadmin only. */
 const canManageLink = (
   actor: string,
   createdBy: string | null | undefined,
-  superadmins: Set<string>
+  roles: RolesMap,
+  bootstrap: Set<string>
 ): boolean => {
-  if (isSuperadmin(actor, superadmins)) return true
+  if (isActorSuperadmin(actor, roles, bootstrap)) return true
   if (!createdBy) return false
   const owner = createdBy.trim().toLowerCase()
   if (!owner || owner === 'unknown' || owner === 'legacy / unknown') return false
   return actor.toLowerCase() === owner
 }
+
+const loadAuthz = async (c: Context<AppEnv>) => {
+  const actor = getActor((name) => c.req.header(name))
+  const bootstrap = parseBootstrapSuperadmins(c.env.SUPERADMIN_EMAILS)
+  const roles = await getRolesMap(c.env.KV)
+  const role = resolveRole(actor, roles, bootstrap)
+  return {
+    actor,
+    bootstrap,
+    roles,
+    role,
+    isSuperadmin: role === 'superadmin'
+  }
+}
+
+const adminNav = (isSuperadmin: boolean) => (
+  <p class="mt-10">
+    <a href="/admin/">Home</a>
+    <span> | </span>
+    <a href="/admin/history">History</a>
+    <span> | </span>
+    <a href="/admin/trash">Trash</a>
+    <span> | </span>
+    <a href="/admin/audit">Audit</a>
+    {isSuperadmin ? (
+      <span>
+        <span> | </span>
+        <a href="/admin/roles">Roles</a>
+      </span>
+    ) : null}
+  </p>
+)
 
 const listShortLinkKeys = async (kv: KVNamespace): Promise<string[]> => {
   const keys: string[] = []
@@ -827,8 +912,7 @@ app.get('/admin/qr/:key{[0-9a-z]{6}}', async (c) => {
 // History page with filters
 app.get('/admin/history', async (c) => {
   const items = await getHistory(c.env.KV)
-  const actor = getActor((name) => c.req.header(name))
-  const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
+  const { actor, roles, bootstrap, isSuperadmin } = await loadAuthz(c)
 
   return c.render(
     <div>
@@ -900,7 +984,8 @@ app.get('/admin/history', async (c) => {
             const allowDelete = canManageLink(
               actor,
               item.createdBy,
-              superadmins
+              roles,
+              bootstrap
             )
             return (
               <tr key={item.key} hidden={index >= HISTORY_PAGE_SIZE}>
@@ -972,13 +1057,7 @@ app.get('/admin/history', async (c) => {
         </button>
       </div>
 
-      <p class="mt-10">
-        <a href="/admin/">Back to Home</a>
-        <span> | </span>
-        <a href="/admin/trash">Trash</a>
-        <span> | </span>
-        <a href="/admin/audit">View audit log</a>
-      </p>
+      {adminNav(isSuperadmin)}
 
       <p id="history-status" class="history-status" />
 
@@ -1316,19 +1395,21 @@ app.get('/admin/history', async (c) => {
 
 app.get('/admin/audit', async (c) => {
   const items = await getAuditEntries(c.env.KV)
+  const { isSuperadmin } = await loadAuthz(c)
   return c.render(
     <div>
       <h2>Audit log</h2>
       <p>
-        Latest {items.length} create/delete/restore/purge events (maximum 1000).
+        Latest {items.length} create/delete/restore/purge/role events (maximum
+        1000).
       </p>
       <table class="history-table">
         <thead>
           <tr>
             <th>Timestamp</th>
             <th>Action</th>
-            <th>Short key</th>
-            <th>Original URL</th>
+            <th>Target</th>
+            <th>Detail</th>
             <th>User</th>
           </tr>
         </thead>
@@ -1344,11 +1425,7 @@ app.get('/admin/audit', async (c) => {
           ))}
         </tbody>
       </table>
-      <p class="mt-10">
-        <a href="/admin/history">Back to history</a>
-        <span> | </span>
-        <a href="/admin/trash">Trash</a>
-      </p>
+      {adminNav(isSuperadmin)}
     </div>
   )
 })
@@ -1647,11 +1724,10 @@ app.post(
           404
         )
       }
-      const actor = getActor((name) => c.req.header(name))
-      const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
+      const { actor, roles, bootstrap } = await loadAuthz(c)
       const history = await getHistory(c.env.KV)
       const historyItem = history.find((item) => item.key === key) || null
-      if (!canManageLink(actor, historyItem?.createdBy, superadmins)) {
+      if (!canManageLink(actor, historyItem?.createdBy, roles, bootstrap)) {
         return c.json(
           {
             ok: false,
@@ -1692,8 +1768,7 @@ app.post(
 
 app.get('/admin/trash', async (c) => {
   const items = await getTrash(c.env.KV)
-  const actor = getActor((name) => c.req.header(name))
-  const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
+  const { actor, roles, bootstrap, isSuperadmin } = await loadAuthz(c)
   return c.render(
     <div>
       <h2>Trash ({items.length})</h2>
@@ -1718,7 +1793,8 @@ app.get('/admin/trash', async (c) => {
             const allowManage = canManageLink(
               actor,
               item.createdBy,
-              superadmins
+              roles,
+              bootstrap
             )
             return (
               <tr key={item.key}>
@@ -1754,11 +1830,7 @@ app.get('/admin/trash', async (c) => {
           })}
         </tbody>
       </table>
-      <p class="mt-10">
-        <a href="/admin/history">Back to history</a>
-        <span> | </span>
-        <a href="/admin/">Back to Home</a>
-      </p>
+      {adminNav(isSuperadmin)}
       <p id="trash-status" class="history-status" />
       <script
         nonce={c.get('cspNonce')}
@@ -1838,9 +1910,8 @@ app.post(
           404
         )
       }
-      const actor = getActor((name) => c.req.header(name))
-      const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
-      if (!canManageLink(actor, pending.createdBy, superadmins)) {
+      const { actor, roles, bootstrap } = await loadAuthz(c)
+      if (!canManageLink(actor, pending.createdBy, roles, bootstrap)) {
         return c.json(
           {
             ok: false,
@@ -1897,9 +1968,8 @@ app.post(
           404
         )
       }
-      const actor = getActor((name) => c.req.header(name))
-      const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
-      if (!canManageLink(actor, pending.createdBy, superadmins)) {
+      const { actor, roles, bootstrap } = await loadAuthz(c)
+      if (!canManageLink(actor, pending.createdBy, roles, bootstrap)) {
         return c.json(
           {
             ok: false,
@@ -1932,6 +2002,281 @@ app.post(
         500
       )
     }
+  }
+)
+
+app.get('/admin/roles', async (c) => {
+  const authz = await loadAuthz(c)
+  if (!authz.isSuperadmin) {
+    c.status(403)
+    return c.render(
+      <div class="status-layout">
+        <Semaphore color="red" />
+        <div>
+          <h2>Forbidden</h2>
+          <p>Only superadmins can manage roles.</p>
+          {adminNav(false)}
+        </div>
+      </div>
+    )
+  }
+
+  const rows = new Map<
+    string,
+    { email: string; role: Role; source: 'kv' | 'bootstrap' }
+  >()
+  for (const email of authz.bootstrap) {
+    rows.set(email, { email, role: 'superadmin', source: 'bootstrap' })
+  }
+  for (const [email, role] of Object.entries(authz.roles)) {
+    rows.set(email, { email, role, source: 'kv' })
+  }
+  const list = [...rows.values()].sort((a, b) => a.email.localeCompare(b.email))
+
+  return c.render(
+    <div>
+      <h2>Roles</h2>
+      <p>
+        Assign <code>user</code> or <code>superadmin</code>. Superadmins can
+        manage any short link and edit roles. Bootstrap superadmins from{' '}
+        <code>SUPERADMIN_EMAILS</code> appear until overridden in KV.
+      </p>
+      <p class="muted">Signed in as {authz.actor} ({authz.role}).</p>
+
+      <form id="role-form" class="history-filters">
+        <div class="form-row">
+          <input
+            id="role-email"
+            type="email"
+            required
+            placeholder="name@iasociety.org"
+            class="history-search"
+          />
+          <select id="role-value" class="date-input">
+            <option value="user">user</option>
+            <option value="superadmin">superadmin</option>
+          </select>
+          <button type="submit">Save role</button>
+        </div>
+      </form>
+
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Source</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((item) => (
+            <tr key={item.email}>
+              <td>{item.email}</td>
+              <td>{item.role}</td>
+              <td>{item.source === 'kv' ? 'assigned' : 'bootstrap env'}</td>
+              <td class="actions-cell">
+                {item.source === 'kv' ? (
+                  <button
+                    type="button"
+                    class="role-remove-btn"
+                    data-email={item.email}
+                  >
+                    Remove assignment
+                  </button>
+                ) : (
+                  <span class="muted">Set via env / override below</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {adminNav(true)}
+      <p id="roles-status" class="history-status" />
+      <script
+        nonce={c.get('cspNonce')}
+        dangerouslySetInnerHTML={{
+          __html: `
+          (function () {
+            const statusEl = document.getElementById('roles-status');
+            const form = document.getElementById('role-form');
+            const emailInput = document.getElementById('role-email');
+            const roleSelect = document.getElementById('role-value');
+            function setStatus(msg) {
+              if (!statusEl) return;
+              statusEl.textContent = msg;
+            }
+            if (form && emailInput && roleSelect) {
+              form.addEventListener('submit', async function (e) {
+                e.preventDefault();
+                const email = (emailInput.value || '').trim();
+                const role = roleSelect.value;
+                try {
+                  const res = await fetch('/admin/roles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, role })
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    setStatus((data && data.message) || 'Save failed');
+                    return;
+                  }
+                  window.location.reload();
+                } catch (err) {
+                  setStatus('Save error');
+                }
+              });
+            }
+            document.querySelectorAll('.role-remove-btn').forEach((btn) => {
+              btn.addEventListener('click', async () => {
+                const email = btn.getAttribute('data-email');
+                if (!email) return;
+                if (!confirm('Remove role assignment for ' + email + '?')) return;
+                try {
+                  const res = await fetch('/admin/roles/remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    setStatus((data && data.message) || 'Remove failed');
+                    return;
+                  }
+                  window.location.reload();
+                } catch (err) {
+                  setStatus('Remove error');
+                }
+              });
+            });
+          })();
+        `
+        }}
+      />
+    </div>
+  )
+})
+
+app.post(
+  '/admin/roles',
+  rateLimit('roles', 60, 600, 'json'),
+  csrfProtect('json'),
+  async (c) => {
+    const authz = await loadAuthz(c)
+    if (!authz.isSuperadmin) {
+      return c.json(
+        { ok: false, error: 'forbidden', message: 'Only superadmins can manage roles.' },
+        403
+      )
+    }
+    let body: { email?: unknown; role?: unknown }
+    try {
+      body = (await c.req.json()) as { email?: unknown; role?: unknown }
+    } catch {
+      return c.json(
+        { ok: false, error: 'invalid-json', message: 'Invalid JSON body' },
+        400
+      )
+    }
+    const email =
+      typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+    const role = body.role === 'superadmin' || body.role === 'user' ? body.role : null
+    if (!EMAIL_RE.test(email) || !role) {
+      return c.json(
+        {
+          ok: false,
+          error: 'invalid-input',
+          message: 'Provide a valid email and role (user or superadmin).'
+        },
+        400
+      )
+    }
+
+    const next: RolesMap = { ...authz.roles, [email]: role }
+    const remaining = listEffectiveSuperadmins(next, authz.bootstrap)
+    if (remaining.length === 0) {
+      return c.json(
+        {
+          ok: false,
+          error: 'last-superadmin',
+          message: 'Cannot remove the last superadmin.'
+        },
+        400
+      )
+    }
+
+    await putRolesMap(c.env.KV, next)
+    await addAuditEntry(c.env.KV, {
+      action: 'role-set',
+      key: email,
+      url: role,
+      actor: authz.actor,
+      timestamp: new Date().toISOString()
+    })
+    return c.json({ ok: true, email, role })
+  }
+)
+
+app.post(
+  '/admin/roles/remove',
+  rateLimit('roles-remove', 60, 600, 'json'),
+  csrfProtect('json'),
+  async (c) => {
+    const authz = await loadAuthz(c)
+    if (!authz.isSuperadmin) {
+      return c.json(
+        { ok: false, error: 'forbidden', message: 'Only superadmins can manage roles.' },
+        403
+      )
+    }
+    let body: { email?: unknown }
+    try {
+      body = (await c.req.json()) as { email?: unknown }
+    } catch {
+      return c.json(
+        { ok: false, error: 'invalid-json', message: 'Invalid JSON body' },
+        400
+      )
+    }
+    const email =
+      typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+    if (!EMAIL_RE.test(email) || !authz.roles[email]) {
+      return c.json(
+        {
+          ok: false,
+          error: 'not-found',
+          message: 'No KV role assignment found for that email.'
+        },
+        404
+      )
+    }
+
+    const next: RolesMap = { ...authz.roles }
+    delete next[email]
+    const remaining = listEffectiveSuperadmins(next, authz.bootstrap)
+    if (remaining.length === 0) {
+      return c.json(
+        {
+          ok: false,
+          error: 'last-superadmin',
+          message: 'Cannot remove the last superadmin.'
+        },
+        400
+      )
+    }
+
+    await putRolesMap(c.env.KV, next)
+    await addAuditEntry(c.env.KV, {
+      action: 'role-set',
+      key: email,
+      url: 'removed',
+      actor: authz.actor,
+      timestamp: new Date().toISOString()
+    })
+    return c.json({ ok: true, email, role: null })
   }
 )
 

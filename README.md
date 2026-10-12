@@ -164,7 +164,8 @@ The GitHub-connected workflow is preferred.
 | `<six-character-key>` | Destination URL |
 | `__history__` | Latest 5000 History records (page shows 100 at a time) |
 | `__trash__` | Latest 1000 soft-deleted links |
-| `__audit__` | Latest 1000 create/delete/restore/purge events |
+| `__roles__` | Email → role map (`user` / `superadmin`) |
+| `__audit__` | Latest 1000 create/delete/restore/purge/role events |
 | `__rate__:*` | Temporary rate-limit counters |
 
 History and audit lists have count limits but no time-based expiration.
@@ -200,12 +201,16 @@ Use:
 - `/admin/audit` to identify who created, deleted, restored, or purged a link;
 - Cloudflare Worker logs for runtime errors and structured audit events.
 
-### Superadmins
+### Roles (user / superadmin)
 
-Set the Worker variable `SUPERADMIN_EMAILS` to a comma-separated list of Access
-emails (for example `dario.porru@iasociety.org`). Superadmins can trash, restore,
-or purge any short link. Everyone else can manage only links they created.
-Legacy links without an owner are superadmin-only.
+- Default Access users are `user`: they can create links and manage only their own.
+- Superadmins can manage any link and open `/admin/roles` to assign `user` or
+  `superadmin` to any IAS email.
+- Roles are stored in KV (`__roles__`).
+- Set Worker variable `SUPERADMIN_EMAILS` once as bootstrap (for example
+  `dario.porru@iasociety.org`) so the first superadmin can sign in and assign
+  others. Bootstrap entries can be overridden from the Roles page.
+- The last effective superadmin cannot be removed.
 
 ### Find missing links
 
