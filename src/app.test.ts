@@ -68,6 +68,35 @@ describe('URL shortener routes', () => {
     expect(csp).not.toContain('unsafe-inline')
   })
 
+  it('shows a Roles link on home for superadmins only', async () => {
+    const asUser = await request(
+      '/admin/',
+      {
+        headers: {
+          'CF-Access-Authenticated-User-Email': 'user@iasociety.org'
+        }
+      },
+      env
+    )
+    const userHtml = await asUser.text()
+    expect(userHtml).toContain('Signed in as user@iasociety.org')
+    expect(userHtml).not.toContain('href="/admin/roles"')
+
+    const asSuper = await request(
+      '/admin/',
+      {
+        headers: {
+          'CF-Access-Authenticated-User-Email': 'super@iasociety.org'
+        }
+      },
+      env
+    )
+    const superHtml = await asSuper.text()
+    expect(superHtml).toContain('(superadmin)')
+    expect(superHtml).toContain('href="/admin/roles"')
+    expect(superHtml).toContain('Manage roles')
+  })
+
   it('rejects create without CSRF origin', async () => {
     const res = await request(
       '/admin/create',
