@@ -14,6 +14,8 @@ ID. Short URLs remain public so recipients can open them without signing in.
 - Local QR code generation with no third-party service
 - Searchable History with destination status indicators
 - Soft delete with Trash restore / permanent purge
+- Delete/restore/purge limited to the creator or configured superadmins
+- “Find missing links” rebuilds active KV keys missing from History
 - Create/delete/restore/purge audit log with authenticated user identity
 - Optional webhook alerts for unhandled errors
 - Strict security headers, CSRF protection, and rate limiting
@@ -162,7 +164,8 @@ The GitHub-connected workflow is preferred.
 | `<six-character-key>` | Destination URL |
 | `__history__` | Latest 5000 History records (page shows 100 at a time) |
 | `__trash__` | Latest 1000 soft-deleted links |
-| `__audit__` | Latest 1000 create/delete/restore/purge events |
+| `__roles__` | Email → role map (`user` / `superadmin`) |
+| `__audit__` | Latest 1000 create/delete/restore/purge/role events |
 | `__rate__:*` | Temporary rate-limit counters |
 
 History and audit lists have count limits but no time-based expiration.
@@ -197,6 +200,23 @@ Use:
 - `/admin/trash` to restore or permanently purge deleted links;
 - `/admin/audit` to identify who created, deleted, restored, or purged a link;
 - Cloudflare Worker logs for runtime errors and structured audit events.
+
+### Roles (user / superadmin)
+
+- Default Access users are `user`: they can create links and manage only their own.
+- Superadmins can manage any link and open `/admin/roles` to assign `user` or
+  `superadmin` to any IAS email.
+- Roles are stored in KV (`__roles__`).
+- Set Worker variable `SUPERADMIN_EMAILS` once as bootstrap (for example
+  `dario.porru@iasociety.org`) so the first superadmin can sign in and assign
+  others. Bootstrap entries can be overridden from the Roles page.
+- The last effective superadmin cannot be removed.
+
+### Find missing links
+
+On `/admin/history`, **Find missing links** scans KV for active six-character
+keys that are not in History (and not in Trash) and appends them as
+`legacy / unknown`. Creation date/owner cannot be recovered for those entries.
 
 ### Error alerts
 
