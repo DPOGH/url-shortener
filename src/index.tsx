@@ -13,6 +13,8 @@ type Bindings = {
   KV: KVNamespace
   /** Optional Teams/Slack incoming webhook for unhandled error alerts. */
   ALERT_WEBHOOK_URL?: string
+  /** Comma-separated Access emails allowed to manage any short link. */
+  SUPERADMIN_EMAILS?: string
 }
 
 type AppEnv = {
@@ -581,6 +583,75 @@ const getActor = (header: (name: string) => string | undefined): string => {
   return 'unknown'
 }
 
+const parseSuperadminEmails = (raw: string | undefined): Set<string> =>
+  new Set(
+    (raw || '')
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  )
+
+const isSuperadmin = (actor: string, superadmins: Set<string>): boolean =>
+  actor !== 'unknown' && superadmins.has(actor.toLowerCase())
+
+/** Delete/restore/purge: creator or superadmin. Legacy (no owner) = superadmin only. */
+const canManageLink = (
+  actor: string,
+  createdBy: string | null | undefined,
+  superadmins: Set<string>
+): boolean => {
+  if (isSuperadmin(actor, superadmins)) return true
+  if (!createdBy) return false
+  const owner = createdBy.trim().toLowerCase()
+  if (!owner || owner === 'unknown' || owner === 'legacy / unknown') return false
+  return actor.toLowerCase() === owner
+}
+
+const listShortLinkKeys = async (kv: KVNamespace): Promise<string[]> => {
+  const keys: string[] = []
+  let cursor: string | undefined
+  for (;;) {
+    const page = await kv.list({ limit: 1000, cursor })
+    for (const entry of page.keys) {
+      if (SHORT_KEY_RE.test(entry.name)) keys.push(entry.name)
+    }
+    if (page.list_complete) break
+    cursor = page.cursor
+  }
+  return keys
+}
+
+/** Re-add active KV short keys that are missing from History (no date/owner). */
+const rebuildOrphanHistory = async (
+  kv: KVNamespace
+): Promise<{ added: number; total: number }> => {
+  const history = await getHistory(kv)
+  const known = new Set(history.map((item) => item.key))
+  const trashKeys = new Set((await getTrash(kv)).map((item) => item.key))
+  const orphans: HistoryItem[] = []
+
+  for (const key of await listShortLinkKeys(kv)) {
+    if (known.has(key) || trashKeys.has(key)) continue
+    const url = await kv.get(key)
+    if (!url || !isHttpUrl(url)) continue
+    orphans.push({
+      key,
+      url,
+      createdAt: '1970-01-01T00:00:00.000Z',
+      createdBy: 'legacy / unknown'
+    })
+    known.add(key)
+  }
+
+  if (orphans.length === 0) {
+    return { added: 0, total: history.length }
+  }
+
+  const merged = [...history, ...orphans].slice(0, HISTORY_MAX_ITEMS)
+  await kv.put(HISTORY_KEY, JSON.stringify(merged))
+  return { added: orphans.length, total: merged.length }
+}
+
 const addAuditEntry = async (kv: KVNamespace, item: AuditItem) => {
   const json = await kv.get(AUDIT_KEY)
   let list: AuditItem[] = []
@@ -756,6 +827,8 @@ app.get('/admin/qr/:key{[0-9a-z]{6}}', async (c) => {
 // History page with filters
 app.get('/admin/history', async (c) => {
   const items = await getHistory(c.env.KV)
+  const actor = getActor((name) => c.req.header(name))
+  const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
 
   return c.render(
     <div>
@@ -763,7 +836,8 @@ app.get('/admin/history', async (c) => {
       <p>
         The dot next to the original URL is green when the destination is
         reachable and red when it is not. Search and date filters cover the
-        whole history.
+        whole history. Only the creator or a superadmin can move a link to
+        Trash.
       </p>
 
       {/* Filters: text + date range */}
@@ -804,6 +878,9 @@ app.get('/admin/history', async (c) => {
           <button id="history-clear-filters" type="button" class="ml-10">
             Clear filters
           </button>
+          <button id="history-rebuild-orphans" type="button" class="ml-10">
+            Find missing links
+          </button>
         </div>
       </div>
 
@@ -820,6 +897,11 @@ app.get('/admin/history', async (c) => {
         <tbody>
           {items.map((item, index) => {
             const shortUrl = new URL(`/${item.key}`, c.req.url).toString()
+            const allowDelete = canManageLink(
+              actor,
+              item.createdBy,
+              superadmins
+            )
             return (
               <tr key={item.key} hidden={index >= HISTORY_PAGE_SIZE}>
                 <td class="created-at-cell">
@@ -853,13 +935,19 @@ app.get('/admin/history', async (c) => {
                   >
                     Copy QR
                   </button>
-                  <button
-                    type="button"
-                    class="delete-btn ml-6"
-                    data-key={item.key}
-                  >
-                    Delete
-                  </button>
+                  {allowDelete ? (
+                    <button
+                      type="button"
+                      class="delete-btn ml-6"
+                      data-key={item.key}
+                    >
+                      Delete
+                    </button>
+                  ) : (
+                    <span class="muted ml-6" title="Only the creator or a superadmin can delete this link">
+                      No delete
+                    </span>
+                  )}
                 </td>
               </tr>
             )
@@ -1003,6 +1091,31 @@ app.get('/admin/history', async (c) => {
                 if (fromInput) fromInput.value = '';
                 if (toInput) toInput.value = '';
                 applyFilters();
+              });
+            }
+
+            const rebuildBtn = document.getElementById('history-rebuild-orphans');
+            if (rebuildBtn) {
+              rebuildBtn.addEventListener('click', async () => {
+                if (!confirm('Scan KV for short links missing from History and add them? Date/owner will show as legacy.')) return;
+                rebuildBtn.setAttribute('disabled', 'true');
+                try {
+                  const res = await fetch('/admin/history/rebuild-orphans', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    setStatus((data && data.message) || 'Rebuild failed');
+                    return;
+                  }
+                  setStatus('Added ' + (data.added || 0) + ' missing link(s). Reloading…');
+                  window.location.reload();
+                } catch (e) {
+                  setStatus('Rebuild error');
+                } finally {
+                  rebuildBtn.removeAttribute('disabled');
+                }
               });
             }
 
@@ -1495,6 +1608,24 @@ app.post(
   }
 )
 
+app.post(
+  '/admin/history/rebuild-orphans',
+  rateLimit('rebuild-orphans', 10, 600, 'json'),
+  csrfProtect('json'),
+  async (c) => {
+    try {
+      const result = await rebuildOrphanHistory(c.env.KV)
+      return c.json({ ok: true, ...result })
+    } catch (e) {
+      console.error('Error rebuilding orphan history:', e)
+      return c.json(
+        { ok: false, error: 'rebuild-failed', message: 'Rebuild failed' },
+        500
+      )
+    }
+  }
+)
+
 // Soft-delete: stop the redirect, remove from History, keep a Trash copy.
 app.post(
   '/admin/history/delete/:key{[0-9a-z]{6}}',
@@ -1517,7 +1648,21 @@ app.post(
         )
       }
       const actor = getActor((name) => c.req.header(name))
-      const historyItem = await removeFromHistory(c.env.KV, key)
+      const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
+      const history = await getHistory(c.env.KV)
+      const historyItem = history.find((item) => item.key === key) || null
+      if (!canManageLink(actor, historyItem?.createdBy, superadmins)) {
+        return c.json(
+          {
+            ok: false,
+            error: 'forbidden',
+            message:
+              'Only the creator or a superadmin can move this short link to Trash.'
+          },
+          403
+        )
+      }
+      await removeFromHistory(c.env.KV, key)
       await c.env.KV.delete(key)
       await addToTrash(c.env.KV, {
         key,
@@ -1547,48 +1692,66 @@ app.post(
 
 app.get('/admin/trash', async (c) => {
   const items = await getTrash(c.env.KV)
+  const actor = getActor((name) => c.req.header(name))
+  const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
   return c.render(
     <div>
       <h2>Trash ({items.length})</h2>
       <p>
         Deleted short links stay here until restored or permanently purged.
         Restored links keep the same six-character key when still available.
+        Only the original creator or a superadmin can restore or purge.
       </p>
       <table id="trash-table" class="history-table">
         <thead>
           <tr>
             <th>Deleted at</th>
             <th>Deleted by</th>
+            <th>Created by</th>
             <th>Original URL</th>
             <th>Short key</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => (
-            <tr key={item.key}>
-              <td>{item.deletedAt}</td>
-              <td>{item.deletedBy}</td>
-              <td class="word-break">{item.url}</td>
-              <td>{item.key}</td>
-              <td class="actions-cell">
-                <button
-                  type="button"
-                  class="restore-btn"
-                  data-key={item.key}
-                >
-                  Restore
-                </button>
-                <button
-                  type="button"
-                  class="purge-btn ml-6"
-                  data-key={item.key}
-                >
-                  Delete forever
-                </button>
-              </td>
-            </tr>
-          ))}
+          {items.map((item) => {
+            const allowManage = canManageLink(
+              actor,
+              item.createdBy,
+              superadmins
+            )
+            return (
+              <tr key={item.key}>
+                <td>{item.deletedAt}</td>
+                <td>{item.deletedBy}</td>
+                <td>{item.createdBy || 'legacy / unknown'}</td>
+                <td class="word-break">{item.url}</td>
+                <td>{item.key}</td>
+                <td class="actions-cell">
+                  {allowManage ? (
+                    <span>
+                      <button
+                        type="button"
+                        class="restore-btn"
+                        data-key={item.key}
+                      >
+                        Restore
+                      </button>
+                      <button
+                        type="button"
+                        class="purge-btn ml-6"
+                        data-key={item.key}
+                      >
+                        Delete forever
+                      </button>
+                    </span>
+                  ) : (
+                    <span class="muted">No actions</span>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
       <p class="mt-10">
@@ -1668,6 +1831,26 @@ app.post(
           409
         )
       }
+      const pending = (await getTrash(c.env.KV)).find((item) => item.key === key)
+      if (!pending) {
+        return c.json(
+          { ok: false, error: 'not-found', message: 'Trash entry not found' },
+          404
+        )
+      }
+      const actor = getActor((name) => c.req.header(name))
+      const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
+      if (!canManageLink(actor, pending.createdBy, superadmins)) {
+        return c.json(
+          {
+            ok: false,
+            error: 'forbidden',
+            message:
+              'Only the creator or a superadmin can restore this short link.'
+          },
+          403
+        )
+      }
       const item = await removeFromTrash(c.env.KV, key)
       if (!item) {
         return c.json(
@@ -1675,7 +1858,6 @@ app.post(
           404
         )
       }
-      const actor = getActor((name) => c.req.header(name))
       await c.env.KV.put(key, item.url)
       await addToHistory(c.env.KV, {
         key,
@@ -1708,6 +1890,26 @@ app.post(
   async (c) => {
     const key = c.req.param('key')
     try {
+      const pending = (await getTrash(c.env.KV)).find((item) => item.key === key)
+      if (!pending) {
+        return c.json(
+          { ok: false, error: 'not-found', message: 'Trash entry not found' },
+          404
+        )
+      }
+      const actor = getActor((name) => c.req.header(name))
+      const superadmins = parseSuperadminEmails(c.env.SUPERADMIN_EMAILS)
+      if (!canManageLink(actor, pending.createdBy, superadmins)) {
+        return c.json(
+          {
+            ok: false,
+            error: 'forbidden',
+            message:
+              'Only the creator or a superadmin can permanently delete this short link.'
+          },
+          403
+        )
+      }
       const item = await removeFromTrash(c.env.KV, key)
       if (!item) {
         return c.json(
@@ -1715,7 +1917,6 @@ app.post(
           404
         )
       }
-      const actor = getActor((name) => c.req.header(name))
       await addAuditEntry(c.env.KV, {
         action: 'purge',
         key,

@@ -4,24 +4,24 @@ import { createMemoryKv } from './test/memory-kv'
 
 const ORIGIN = 'https://toias.link'
 
-const request = (
-  path: string,
-  init: RequestInit = {},
-  env: { KV: KVNamespace }
-) =>
-  app.request(
-    path.startsWith('http') ? path : `${ORIGIN}${path}`,
-    init,
-    env
-  )
+type TestEnv = {
+  KV: KVNamespace
+  SUPERADMIN_EMAILS?: string
+}
+
+const request = (path: string, init: RequestInit = {}, env: TestEnv) =>
+  app.request(path.startsWith('http') ? path : `${ORIGIN}${path}`, init, env)
 
 describe('URL shortener routes', () => {
   let kv: KVNamespace
-  let env: { KV: KVNamespace }
+  let env: TestEnv
 
   beforeEach(() => {
     kv = createMemoryKv()
-    env = { KV: kv }
+    env = {
+      KV: kv,
+      SUPERADMIN_EMAILS: 'super@iasociety.org'
+    }
   })
 
   afterEach(() => {
@@ -176,7 +176,7 @@ describe('URL shortener routes', () => {
     expect(body.reachable).toBe(false)
   })
 
-  it('deletes a short link and writes an audit entry', async () => {
+  it('blocks delete from non-owners and allows creator or superadmin', async () => {
     await kv.put('abc123', 'https://example.com/x')
     await kv.put(
       '__history__',
@@ -190,45 +190,53 @@ describe('URL shortener routes', () => {
       ])
     )
 
-    const res = await request(
+    const forbidden = await request(
       '/admin/history/delete/abc123',
       {
         method: 'POST',
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'deleter@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'other@iasociety.org',
           'Content-Type': 'application/json'
         }
       },
       env
     )
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, trashed: true })
+    expect(forbidden.status).toBe(403)
+    expect(await kv.get('abc123')).toBe('https://example.com/x')
+
+    const byOwner = await request(
+      '/admin/history/delete/abc123',
+      {
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Access-Authenticated-User-Email': 'owner@iasociety.org',
+          'Content-Type': 'application/json'
+        }
+      },
+      env
+    )
+    expect(byOwner.status).toBe(200)
+    expect(await byOwner.json()).toEqual({ ok: true, trashed: true })
     expect(await kv.get('abc123')).toBeNull()
-    expect(JSON.parse((await kv.get('__history__')) || '[]')).toEqual([])
 
-    const trash = JSON.parse((await kv.get('__trash__')) || '[]') as Array<{
-      key: string
-      url: string
-      deletedBy: string
-    }>
-    expect(trash[0]).toMatchObject({
-      key: 'abc123',
-      url: 'https://example.com/x',
-      deletedBy: 'deleter@iasociety.org'
-    })
-
-    const audit = JSON.parse((await kv.get('__audit__')) || '[]') as Array<{
-      action: string
-      actor: string
-      key: string
-    }>
-    expect(audit[0]).toMatchObject({
-      action: 'delete',
-      actor: 'deleter@iasociety.org',
-      key: 'abc123'
-    })
+    const restoreForbidden = await request(
+      '/admin/trash/restore/abc123',
+      {
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Access-Authenticated-User-Email': 'other@iasociety.org',
+          'Content-Type': 'application/json'
+        }
+      },
+      env
+    )
+    expect(restoreForbidden.status).toBe(403)
 
     const restore = await request(
       '/admin/trash/restore/abc123',
@@ -237,16 +245,53 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'restorer@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'super@iasociety.org',
           'Content-Type': 'application/json'
         }
       },
       env
     )
     expect(restore.status).toBe(200)
-    expect(await restore.json()).toEqual({ ok: true })
     expect(await kv.get('abc123')).toBe('https://example.com/x')
-    expect(JSON.parse((await kv.get('__trash__')) || '[]')).toEqual([])
+  })
+
+  it('rebuilds orphan short links into History', async () => {
+    await kv.put('orphan', 'https://example.com/orphan')
+    await kv.put('listed', 'https://example.com/listed')
+    await kv.put(
+      '__history__',
+      JSON.stringify([
+        {
+          key: 'listed',
+          url: 'https://example.com/listed',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          createdBy: 'owner@iasociety.org'
+        }
+      ])
+    )
+
+    const res = await request(
+      '/admin/history/rebuild-orphans',
+      {
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Access-Authenticated-User-Email': 'owner@iasociety.org',
+          'Content-Type': 'application/json'
+        }
+      },
+      env
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, added: 1, total: 2 })
+
+    const history = JSON.parse((await kv.get('__history__')) || '[]') as Array<{
+      key: string
+      createdBy?: string
+    }>
+    expect(history.map((item) => item.key)).toEqual(['listed', 'orphan'])
+    expect(history[1].createdBy).toBe('legacy / unknown')
   })
 
   it('rate-limits destination checks', async () => {

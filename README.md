@@ -14,6 +14,8 @@ ID. Short URLs remain public so recipients can open them without signing in.
 - Local QR code generation with no third-party service
 - Searchable History with destination status indicators
 - Soft delete with Trash restore / permanent purge
+- Delete/restore/purge limited to the creator or configured superadmins
+- “Find missing links” rebuilds active KV keys missing from History
 - Create/delete/restore/purge audit log with authenticated user identity
 - Optional webhook alerts for unhandled errors
 - Strict security headers, CSRF protection, and rate limiting
@@ -197,6 +199,19 @@ Use:
 - `/admin/trash` to restore or permanently purge deleted links;
 - `/admin/audit` to identify who created, deleted, restored, or purged a link;
 - Cloudflare Worker logs for runtime errors and structured audit events.
+
+### Superadmins
+
+Set the Worker variable `SUPERADMIN_EMAILS` to a comma-separated list of Access
+emails (for example `dario.porru@iasociety.org`). Superadmins can trash, restore,
+or purge any short link. Everyone else can manage only links they created.
+Legacy links without an owner are superadmin-only.
+
+### Find missing links
+
+On `/admin/history`, **Find missing links** scans KV for active six-character
+keys that are not in History (and not in Trash) and appends them as
+`legacy / unknown`. Creation date/owner cannot be recovered for those entries.
 
 ### Error alerts
 
