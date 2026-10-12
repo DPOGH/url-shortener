@@ -364,7 +364,7 @@ app.get('/admin', (c) => {
 
 // Home page with form — destination reachability checked on submit (not while typing)
 app.get('/admin/', async (c) => {
-  const { isSuperadmin } = await loadAuthz(c)
+  const { actor, isSuperadmin } = await loadAuthz(c)
   return c.render(
     <div>
       <h2>Create shortened URL!</h2>
@@ -390,6 +390,15 @@ app.get('/admin/', async (c) => {
           before saving.
         </p>
       </form>
+
+      {isSuperadmin ? (
+        <p class="mt-10">
+          Signed in as {actor} (superadmin).{' '}
+          <a href="/admin/roles">Manage roles</a>
+        </p>
+      ) : (
+        <p class="muted mt-10">Signed in as {actor}</p>
+      )}
 
       {adminNav(isSuperadmin)}
 
@@ -685,7 +694,7 @@ const adminNav = (isSuperadmin: boolean) => (
     {isSuperadmin ? (
       <span>
         <span> | </span>
-        <a href="/admin/roles">Superadmins</a>
+        <a href="/admin/roles">Roles</a>
       </span>
     ) : null}
   </p>
@@ -1485,7 +1494,7 @@ app.post(
     }
 
     const key = await createKey(c.env.KV, url)
-    const actor = getActor((name) => c.req.header(name))
+    const { actor, isSuperadmin } = await loadAuthz(c)
 
     const shortenUrl = new URL(`/${key}`, c.req.url)
     const shortUrlStr = shortenUrl.toString()
@@ -1557,11 +1566,7 @@ app.post(
           />
         </div>
 
-        <div class="mt-10">
-          <a href="/admin/">Back to Home</a>
-          <span> | </span>
-          <a href="/admin/history">View history</a>
-        </div>
+        {adminNav(isSuperadmin)}
 
         <script
           nonce={c.get('cspNonce')}
@@ -2034,7 +2039,7 @@ app.get('/admin/roles', async (c) => {
 
   return c.render(
     <div>
-      <h2>Superadmins</h2>
+      <h2>Roles</h2>
       <p>
         Everyone who signs in via Cloudflare Access is a <code>user</code> by
         default (including the first visit). Use this page only to grant or
