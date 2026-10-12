@@ -164,7 +164,7 @@ The GitHub-connected workflow is preferred.
 | `<six-character-key>` | Destination URL |
 | `__history__` | Latest 5000 History records (page shows 100 at a time) |
 | `__trash__` | Latest 1000 soft-deleted links |
-| `__roles__` | Email → role map (`user` / `superadmin`) |
+| `__roles__` | Email → `superadmin` grants only (everyone else is user) |
 | `__audit__` | Latest 1000 create/delete/restore/purge/role events |
 | `__rate__:*` | Temporary rate-limit counters |
 
@@ -203,13 +203,15 @@ Use:
 
 ### Roles (user / superadmin)
 
-- Default Access users are `user`: they can create links and manage only their own.
-- Superadmins can manage any link and open `/admin/roles` to assign `user` or
-  `superadmin` to any IAS email.
-- Roles are stored in KV (`__roles__`).
+- Everyone who signs in via Cloudflare Access is a `user` by default, including
+  the first visit. No role assignment is required.
+- Users can create links and manage only their own.
+- Superadmins can manage any link and open `/admin/roles` to grant or revoke
+  `superadmin` for other IAS emails. The `user` role is never assigned manually.
+- Only superadmin grants are stored in KV (`__roles__`).
 - Set Worker variable `SUPERADMIN_EMAILS` once as bootstrap (for example
-  `dario.porru@iasociety.org`) so the first superadmin can sign in and assign
-  others. Bootstrap entries can be overridden from the Roles page.
+  `dario.porru@iasociety.org`) so the first superadmin can sign in and promote
+  others. Bootstrap entries are managed via that env var.
 - The last effective superadmin cannot be removed.
 
 ### Find missing links

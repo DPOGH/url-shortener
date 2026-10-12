@@ -19,7 +19,7 @@ id = "028b8fbf405f440f8910dfcc0612483b"
 
 # Optional secrets / vars (prefer Cloudflare dashboard for production):
 # - ALERT_WEBHOOK_URL: Teams/Slack incoming webhook for unhandled errors
-# - SUPERADMIN_EMAILS: comma-separated Access emails that may manage any link
+# - SUPERADMIN_EMAILS: bootstrap superadmins (everyone else is user on Access login)
 # Example:
 # [vars]
 # SUPERADMIN_EMAILS = "dario.porru@iasociety.org"
