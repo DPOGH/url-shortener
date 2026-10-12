@@ -255,7 +255,38 @@ describe('URL shortener routes', () => {
     expect(await kv.get('abc123')).toBe('https://example.com/x')
   })
 
-  it('lets superadmins assign and remove roles', async () => {
+  it('treats Access logins as users and lets superadmins grant/revoke superadmin', async () => {
+    const firstVisit = await request(
+      '/admin/',
+      {
+        headers: {
+          'CF-Access-Authenticated-User-Email': 'first.time@iasociety.org'
+        }
+      },
+      env
+    )
+    expect(firstVisit.status).toBe(200)
+    expect(await kv.get('__roles__')).toBeNull()
+
+    const rejectUserAssign = await request(
+      '/admin/roles',
+      {
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Sec-Fetch-Site': 'same-origin',
+          'CF-Access-Authenticated-User-Email': 'super@iasociety.org',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: 'first.time@iasociety.org',
+          role: 'user'
+        })
+      },
+      env
+    )
+    expect(rejectUserAssign.status).toBe(400)
+
     const forbidden = await request(
       '/admin/roles',
       {
@@ -267,8 +298,7 @@ describe('URL shortener routes', () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          email: 'new.admin@iasociety.org',
-          role: 'superadmin'
+          email: 'new.admin@iasociety.org'
         })
       },
       env
@@ -286,8 +316,7 @@ describe('URL shortener routes', () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          email: 'new.admin@iasociety.org',
-          role: 'superadmin'
+          email: 'new.admin@iasociety.org'
         })
       },
       env
@@ -298,6 +327,7 @@ describe('URL shortener routes', () => {
       string
     >
     expect(roles['new.admin@iasociety.org']).toBe('superadmin')
+    expect(roles['first.time@iasociety.org']).toBeUndefined()
 
     await kv.put('role01', 'https://example.com/role')
     await kv.put(
@@ -327,7 +357,7 @@ describe('URL shortener routes', () => {
     expect(asNewSuper.status).toBe(200)
 
     const demote = await request(
-      '/admin/roles',
+      '/admin/roles/remove',
       {
         method: 'POST',
         headers: {
@@ -337,13 +367,17 @@ describe('URL shortener routes', () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          email: 'new.admin@iasociety.org',
-          role: 'user'
+          email: 'new.admin@iasociety.org'
         })
       },
       env
     )
     expect(demote.status).toBe(200)
+    const after = JSON.parse((await kv.get('__roles__')) || '{}') as Record<
+      string,
+      string
+    >
+    expect(after['new.admin@iasociety.org']).toBeUndefined()
   })
 
   it('rebuilds orphan short links into History', async () => {

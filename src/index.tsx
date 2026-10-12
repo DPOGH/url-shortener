@@ -558,7 +558,8 @@ type AuditItem = {
 }
 
 type Role = 'user' | 'superadmin'
-type RolesMap = Record<string, Role>
+/** Only superadmin grants are stored. Everyone else is user by default. */
+type RolesMap = Record<string, 'superadmin'>
 
 const ROLES_KEY = '__roles__'
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -596,12 +597,13 @@ const getRolesMap = async (kv: KVNamespace): Promise<RolesMap> => {
   const json = await kv.get(ROLES_KEY)
   if (!json) return {}
   try {
-    const parsed = JSON.parse(json) as RolesMap
+    const parsed = JSON.parse(json) as Record<string, string>
     const clean: RolesMap = {}
     for (const [email, role] of Object.entries(parsed || {})) {
       const key = email.trim().toLowerCase()
       if (!EMAIL_RE.test(key)) continue
-      if (role === 'user' || role === 'superadmin') clean[key] = role
+      // Legacy `user` assignments are ignored: Access login = user by default.
+      if (role === 'superadmin') clean[key] = 'superadmin'
     }
     return clean
   } catch {
@@ -613,7 +615,10 @@ const putRolesMap = async (kv: KVNamespace, roles: RolesMap) => {
   await kv.put(ROLES_KEY, JSON.stringify(roles))
 }
 
-/** KV role wins; otherwise SUPERADMIN_EMAILS bootstrap; default user. */
+/**
+ * Anyone who signs in via Access is a user by default.
+ * Superadmin only via SUPERADMIN_EMAILS bootstrap or an explicit KV grant.
+ */
 const resolveRole = (
   actor: string,
   roles: RolesMap,
@@ -621,10 +626,7 @@ const resolveRole = (
 ): Role => {
   if (actor === 'unknown') return 'user'
   const email = actor.toLowerCase()
-  if (roles[email] === 'superadmin' || roles[email] === 'user') {
-    return roles[email]
-  }
-  if (bootstrap.has(email)) return 'superadmin'
+  if (roles[email] === 'superadmin' || bootstrap.has(email)) return 'superadmin'
   return 'user'
 }
 
@@ -639,10 +641,7 @@ const listEffectiveSuperadmins = (
   bootstrap: Set<string>
 ): string[] => {
   const emails = new Set<string>(bootstrap)
-  for (const [email, role] of Object.entries(roles)) {
-    if (role === 'superadmin') emails.add(email)
-    if (role === 'user') emails.delete(email)
-  }
+  for (const email of Object.keys(roles)) emails.add(email)
   return [...emails].sort()
 }
 
@@ -686,7 +685,7 @@ const adminNav = (isSuperadmin: boolean) => (
     {isSuperadmin ? (
       <span>
         <span> | </span>
-        <a href="/admin/roles">Roles</a>
+        <a href="/admin/roles">Superadmins</a>
       </span>
     ) : null}
   </p>
@@ -2014,7 +2013,7 @@ app.get('/admin/roles', async (c) => {
         <Semaphore color="red" />
         <div>
           <h2>Forbidden</h2>
-          <p>Only superadmins can manage roles.</p>
+          <p>Only superadmins can manage superadmin grants.</p>
           {adminNav(false)}
         </div>
       </div>
@@ -2023,23 +2022,24 @@ app.get('/admin/roles', async (c) => {
 
   const rows = new Map<
     string,
-    { email: string; role: Role; source: 'kv' | 'bootstrap' }
+    { email: string; source: 'kv' | 'bootstrap' }
   >()
   for (const email of authz.bootstrap) {
-    rows.set(email, { email, role: 'superadmin', source: 'bootstrap' })
+    rows.set(email, { email, source: 'bootstrap' })
   }
-  for (const [email, role] of Object.entries(authz.roles)) {
-    rows.set(email, { email, role, source: 'kv' })
+  for (const email of Object.keys(authz.roles)) {
+    rows.set(email, { email, source: 'kv' })
   }
   const list = [...rows.values()].sort((a, b) => a.email.localeCompare(b.email))
 
   return c.render(
     <div>
-      <h2>Roles</h2>
+      <h2>Superadmins</h2>
       <p>
-        Assign <code>user</code> or <code>superadmin</code>. Superadmins can
-        manage any short link and edit roles. Bootstrap superadmins from{' '}
-        <code>SUPERADMIN_EMAILS</code> appear until overridden in KV.
+        Everyone who signs in via Cloudflare Access is a <code>user</code> by
+        default (including the first visit). Use this page only to grant or
+        revoke <code>superadmin</code>. Bootstrap superadmins come from{' '}
+        <code>SUPERADMIN_EMAILS</code>.
       </p>
       <p class="muted">Signed in as {authz.actor} ({authz.role}).</p>
 
@@ -2052,11 +2052,7 @@ app.get('/admin/roles', async (c) => {
             placeholder="name@iasociety.org"
             class="history-search"
           />
-          <select id="role-value" class="date-input">
-            <option value="user">user</option>
-            <option value="superadmin">superadmin</option>
-          </select>
-          <button type="submit">Save role</button>
+          <button type="submit">Make superadmin</button>
         </div>
       </form>
 
@@ -2064,7 +2060,6 @@ app.get('/admin/roles', async (c) => {
         <thead>
           <tr>
             <th>Email</th>
-            <th>Role</th>
             <th>Source</th>
             <th>Actions</th>
           </tr>
@@ -2073,7 +2068,6 @@ app.get('/admin/roles', async (c) => {
           {list.map((item) => (
             <tr key={item.email}>
               <td>{item.email}</td>
-              <td>{item.role}</td>
               <td>{item.source === 'kv' ? 'assigned' : 'bootstrap env'}</td>
               <td class="actions-cell">
                 {item.source === 'kv' ? (
@@ -2082,10 +2076,10 @@ app.get('/admin/roles', async (c) => {
                     class="role-remove-btn"
                     data-email={item.email}
                   >
-                    Remove assignment
+                    Remove superadmin
                   </button>
                 ) : (
-                  <span class="muted">Set via env / override below</span>
+                  <span class="muted">Set via SUPERADMIN_EMAILS</span>
                 )}
               </td>
             </tr>
@@ -2103,21 +2097,19 @@ app.get('/admin/roles', async (c) => {
             const statusEl = document.getElementById('roles-status');
             const form = document.getElementById('role-form');
             const emailInput = document.getElementById('role-email');
-            const roleSelect = document.getElementById('role-value');
             function setStatus(msg) {
               if (!statusEl) return;
               statusEl.textContent = msg;
             }
-            if (form && emailInput && roleSelect) {
+            if (form && emailInput) {
               form.addEventListener('submit', async function (e) {
                 e.preventDefault();
                 const email = (emailInput.value || '').trim();
-                const role = roleSelect.value;
                 try {
                   const res = await fetch('/admin/roles', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, role })
+                    body: JSON.stringify({ email })
                   });
                   const data = await res.json().catch(() => ({}));
                   if (!res.ok) {
@@ -2134,7 +2126,7 @@ app.get('/admin/roles', async (c) => {
               btn.addEventListener('click', async () => {
                 const email = btn.getAttribute('data-email');
                 if (!email) return;
-                if (!confirm('Remove role assignment for ' + email + '?')) return;
+                if (!confirm('Remove superadmin for ' + email + '? They stay a normal user.')) return;
                 try {
                   const res = await fetch('/admin/roles/remove', {
                     method: 'POST',
@@ -2168,7 +2160,11 @@ app.post(
     const authz = await loadAuthz(c)
     if (!authz.isSuperadmin) {
       return c.json(
-        { ok: false, error: 'forbidden', message: 'Only superadmins can manage roles.' },
+        {
+          ok: false,
+          error: 'forbidden',
+          message: 'Only superadmins can grant superadmin.'
+        },
         403
       )
     }
@@ -2183,40 +2179,39 @@ app.post(
     }
     const email =
       typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
-    const role = body.role === 'superadmin' || body.role === 'user' ? body.role : null
-    if (!EMAIL_RE.test(email) || !role) {
+    // Accept legacy { role: 'superadmin' }; reject assigning user (default).
+    if (body.role != null && body.role !== 'superadmin') {
       return c.json(
         {
           ok: false,
           error: 'invalid-input',
-          message: 'Provide a valid email and role (user or superadmin).'
+          message:
+            'Users are assigned automatically on Access login. Only superadmin grants are stored.'
         },
         400
       )
     }
-
-    const next: RolesMap = { ...authz.roles, [email]: role }
-    const remaining = listEffectiveSuperadmins(next, authz.bootstrap)
-    if (remaining.length === 0) {
+    if (!EMAIL_RE.test(email)) {
       return c.json(
         {
           ok: false,
-          error: 'last-superadmin',
-          message: 'Cannot remove the last superadmin.'
+          error: 'invalid-input',
+          message: 'Provide a valid email to grant superadmin.'
         },
         400
       )
     }
 
+    const next: RolesMap = { ...authz.roles, [email]: 'superadmin' }
     await putRolesMap(c.env.KV, next)
     await addAuditEntry(c.env.KV, {
       action: 'role-set',
       key: email,
-      url: role,
+      url: 'superadmin',
       actor: authz.actor,
       timestamp: new Date().toISOString()
     })
-    return c.json({ ok: true, email, role })
+    return c.json({ ok: true, email, role: 'superadmin' })
   }
 )
 
@@ -2228,7 +2223,11 @@ app.post(
     const authz = await loadAuthz(c)
     if (!authz.isSuperadmin) {
       return c.json(
-        { ok: false, error: 'forbidden', message: 'Only superadmins can manage roles.' },
+        {
+          ok: false,
+          error: 'forbidden',
+          message: 'Only superadmins can revoke superadmin.'
+        },
         403
       )
     }
@@ -2248,7 +2247,7 @@ app.post(
         {
           ok: false,
           error: 'not-found',
-          message: 'No KV role assignment found for that email.'
+          message: 'No superadmin grant found for that email.'
         },
         404
       )
@@ -2272,11 +2271,11 @@ app.post(
     await addAuditEntry(c.env.KV, {
       action: 'role-set',
       key: email,
-      url: 'removed',
+      url: 'user',
       actor: authz.actor,
       timestamp: new Date().toISOString()
     })
-    return c.json({ ok: true, email, role: null })
+    return c.json({ ok: true, email, role: 'user' })
   }
 )
 
