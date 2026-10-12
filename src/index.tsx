@@ -393,14 +393,11 @@ app.get('/admin/', async (c) => {
 
       {isSuperadmin ? (
         <p class="mt-10">
-          Signed in as {actor} (superadmin).{' '}
           <a href="/admin/roles">Manage roles</a>
         </p>
-      ) : (
-        <p class="muted mt-10">Signed in as {actor}</p>
-      )}
+      ) : null}
 
-      {adminNav(isSuperadmin)}
+      {adminNav({ actor, isSuperadmin })}
 
       <script
         nonce={c.get('cspNonce')}
@@ -682,22 +679,36 @@ const loadAuthz = async (c: Context<AppEnv>) => {
   }
 }
 
-const adminNav = (isSuperadmin: boolean) => (
-  <p class="mt-10">
-    <a href="/admin/">Home</a>
-    <span> | </span>
-    <a href="/admin/history">History</a>
-    <span> | </span>
-    <a href="/admin/trash">Trash</a>
-    <span> | </span>
-    <a href="/admin/audit">Audit</a>
-    {isSuperadmin ? (
-      <span>
-        <span> | </span>
-        <a href="/admin/roles">Roles</a>
-      </span>
-    ) : null}
-  </p>
+/** Clears the Cloudflare Access CF_Authorization cookie for this app. */
+const ACCESS_LOGOUT_PATH = '/cdn-cgi/access/logout'
+
+const adminNav = (opts: {
+  actor: string
+  isSuperadmin: boolean
+}) => (
+  <div class="mt-10">
+    <p>
+      Signed in as {opts.actor}
+      {opts.isSuperadmin ? ' (superadmin)' : ''}
+      <span> · </span>
+      <a href={ACCESS_LOGOUT_PATH}>Logout</a>
+    </p>
+    <p>
+      <a href="/admin/">Home</a>
+      <span> | </span>
+      <a href="/admin/history">History</a>
+      <span> | </span>
+      <a href="/admin/trash">Trash</a>
+      <span> | </span>
+      <a href="/admin/audit">Audit</a>
+      {opts.isSuperadmin ? (
+        <span>
+          <span> | </span>
+          <a href="/admin/roles">Roles</a>
+        </span>
+      ) : null}
+    </p>
+  </div>
 )
 
 const listShortLinkKeys = async (kv: KVNamespace): Promise<string[]> => {
@@ -1065,7 +1076,7 @@ app.get('/admin/history', async (c) => {
         </button>
       </div>
 
-      {adminNav(isSuperadmin)}
+      {adminNav({ actor, isSuperadmin })}
 
       <p id="history-status" class="history-status" />
 
@@ -1403,7 +1414,7 @@ app.get('/admin/history', async (c) => {
 
 app.get('/admin/audit', async (c) => {
   const items = await getAuditEntries(c.env.KV)
-  const { isSuperadmin } = await loadAuthz(c)
+  const { actor, isSuperadmin } = await loadAuthz(c)
   return c.render(
     <div>
       <h2>Audit log</h2>
@@ -1433,7 +1444,7 @@ app.get('/admin/audit', async (c) => {
           ))}
         </tbody>
       </table>
-      {adminNav(isSuperadmin)}
+      {adminNav({ actor, isSuperadmin })}
     </div>
   )
 })
@@ -1566,7 +1577,7 @@ app.post(
           />
         </div>
 
-        {adminNav(isSuperadmin)}
+        {adminNav({ actor, isSuperadmin })}
 
         <script
           nonce={c.get('cspNonce')}
@@ -1834,7 +1845,7 @@ app.get('/admin/trash', async (c) => {
           })}
         </tbody>
       </table>
-      {adminNav(isSuperadmin)}
+      {adminNav({ actor, isSuperadmin })}
       <p id="trash-status" class="history-status" />
       <script
         nonce={c.get('cspNonce')}
@@ -2019,7 +2030,7 @@ app.get('/admin/roles', async (c) => {
         <div>
           <h2>Forbidden</h2>
           <p>Only superadmins can manage superadmin grants.</p>
-          {adminNav(false)}
+          {adminNav({ actor: authz.actor, isSuperadmin: false })}
         </div>
       </div>
     )
@@ -2046,7 +2057,6 @@ app.get('/admin/roles', async (c) => {
         revoke <code>superadmin</code>. Bootstrap superadmins come from{' '}
         <code>SUPERADMIN_EMAILS</code>.
       </p>
-      <p class="muted">Signed in as {authz.actor} ({authz.role}).</p>
 
       <form id="role-form" class="history-filters">
         <div class="form-row">
@@ -2092,7 +2102,7 @@ app.get('/admin/roles', async (c) => {
         </tbody>
       </table>
 
-      {adminNav(true)}
+      {adminNav({ actor: authz.actor, isSuperadmin: true })}
       <p id="roles-status" class="history-status" />
       <script
         nonce={c.get('cspNonce')}

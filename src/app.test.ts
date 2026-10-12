@@ -68,7 +68,7 @@ describe('URL shortener routes', () => {
     expect(csp).not.toContain('unsafe-inline')
   })
 
-  it('shows a Roles link on home for superadmins only', async () => {
+  it('shows Roles for superadmins and Access Logout for everyone', async () => {
     const asUser = await request(
       '/admin/',
       {
@@ -80,6 +80,8 @@ describe('URL shortener routes', () => {
     )
     const userHtml = await asUser.text()
     expect(userHtml).toContain('Signed in as user@iasociety.org')
+    expect(userHtml).toContain('href="/cdn-cgi/access/logout"')
+    expect(userHtml).toContain('Logout')
     expect(userHtml).not.toContain('href="/admin/roles"')
 
     const asSuper = await request(
@@ -95,6 +97,7 @@ describe('URL shortener routes', () => {
     expect(superHtml).toContain('(superadmin)')
     expect(superHtml).toContain('href="/admin/roles"')
     expect(superHtml).toContain('Manage roles')
+    expect(superHtml).toContain('href="/cdn-cgi/access/logout"')
   })
 
   it('rejects create without CSRF origin', async () => {
