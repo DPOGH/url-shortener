@@ -20,7 +20,11 @@ async function anonymizeDom(page) {
     document.querySelectorAll('a, input, [data-url]').forEach((el) => {
       if (el instanceof HTMLAnchorElement && el.href) {
         el.href = rewrite(el.href)
-        if (el.textContent) el.textContent = rewrite(el.textContent)
+        // Never assign textContent on anchors with children — that flattens
+        // the brand-logo badge into plain "LOGOURL Shortener" text.
+        if (!el.querySelector('*') && el.textContent) {
+          el.textContent = rewrite(el.textContent)
+        }
       }
       if (el instanceof HTMLInputElement && el.value) {
         el.value = rewrite(el.value)
@@ -42,22 +46,28 @@ async function anonymizeDom(page) {
 }
 
 async function waitForBrand(page) {
-  await page.waitForSelector('img[src*="brand-logo"], img[src*="brand-icon"]', {
-    timeout: 15000
-  })
+  await page.waitForSelector('.brand-logo', { timeout: 15000 })
   await page.waitForFunction(() => {
-    const img = document.querySelector(
-      'img[src*="brand-logo"], img[src*="brand-icon"]'
-    )
-    return !!img && img.complete && img.naturalWidth > 20
+    const el = document.querySelector('.brand-logo')
+    if (!el) return false
+    const r = el.getBoundingClientRect()
+    return r.width > 40 && r.height > 20 && /LOGO/i.test(el.textContent || '')
   }, { timeout: 15000 })
-  // Ensure SVG paint finished
-  await sleep(300)
+  await sleep(200)
 }
 
 async function shot(page, name) {
   await waitForBrand(page)
   await anonymizeDom(page)
+  const brandOk = await page.evaluate(() => {
+    const el = document.querySelector('.brand-logo')
+    if (!el) return false
+    const bg = getComputedStyle(el).backgroundColor
+    return bg === 'rgb(255, 255, 255)' && /LOGO/i.test(el.textContent || '')
+  })
+  if (!brandOk) {
+    throw new Error(`brand-logo badge missing/flattened before shot: ${name}`)
+  }
   const path = new URL(`${name}.png`, OUT).pathname
   await page.screenshot({ path, fullPage: true })
   console.log('wrote', path, new Date().toISOString())

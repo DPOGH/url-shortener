@@ -238,9 +238,7 @@ const standaloneStatusPage = (opts: {
   <body>
     <div class="standalone-status">
       <a class="standalone-brand" href="/admin/" aria-label="URL Shortener home">
-        <span class="brand-logo">
-          <img src="/assets/brand-logo.svg" alt="LOGO" width="160" height="56" />
-        </span>
+        <span class="brand-logo" aria-hidden="true">LOGO</span>
         <span class="brand-title">URL Shortener</span>
       </a>
       <div class="semaphore semaphore-large" role="img" aria-label="${opts.color}" title="${opts.color}">

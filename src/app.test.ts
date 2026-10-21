@@ -53,7 +53,8 @@ describe('URL shortener routes', () => {
     expect(missing.status).toBe(404)
     const missingHtml = await missing.text()
     expect(missingHtml).toContain('Link not found')
-    expect(missingHtml).toContain('brand-logo.svg')
+    expect(missingHtml).toContain('brand-logo')
+    expect(missingHtml).toContain('LOGO')
 
     const unknown = await request('/does/not/exist', {}, env)
     expect(unknown.status).toBe(404)
@@ -66,7 +67,10 @@ describe('URL shortener routes', () => {
   it('renders the create form with https:// prefilled', async () => {
     const res = await request('/admin/', {}, env)
     expect(res.status).toBe(200)
-    expect(await res.text()).toContain('value="https://"')
+    const html = await res.text()
+    expect(html).toContain('value="https://"')
+    expect(html).toContain('brand-logo')
+    expect(html).toContain('LOGO')
     const csp = res.headers.get('Content-Security-Policy') || ''
     expect(csp).toContain("default-src 'self'")
     expect(csp).not.toContain('unsafe-inline')
