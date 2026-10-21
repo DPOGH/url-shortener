@@ -239,7 +239,7 @@ const standaloneStatusPage = (opts: {
     <div class="standalone-status">
       <a class="standalone-brand" href="/admin/" aria-label="URL Shortener home">
         <span class="brand-logo">
-          <img src="/assets/brand-logo.svg" alt="URL Shortener" width="155" height="57" />
+          <img src="/assets/brand-logo.svg" alt="customlogo" width="200" height="56" />
         </span>
         <span class="brand-title">URL Shortener</span>
       </a>

@@ -24,9 +24,9 @@ export const renderer = jsxRenderer<RendererEnv>(({ children, title }, c) => {
             <span class="brand-logo">
               <img
                 src="/assets/brand-logo.svg"
-                alt="URL Shortener"
-                width="155"
-                height="57"
+                alt="customlogo"
+                width="200"
+                height="56"
               />
             </span>
             <span class="brand-title">URL Shortener</span>

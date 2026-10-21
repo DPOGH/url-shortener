@@ -12,7 +12,7 @@ preview_urls = false
 
 [[kv_namespaces]]
 binding = "KV"
-# Replace with your KV namespace id:
+# Replace this placeholder with your KV namespace id:
 #   npx wrangler kv namespace create URL_SHORTENER
 id = "00000000000000000000000000000000"
 
