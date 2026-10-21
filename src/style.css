@@ -76,9 +76,12 @@ header h1 {
   color: var(--text);
 }
 
-/* CSS badge (not SVG <img>): full-page screenshots paint this reliably */
 .brand-logo {
   display: inline-flex;
+}
+
+/* Text badge. Full-page screenshots paint this reliably. */
+.brand-logo-badge {
   align-items: center;
   justify-content: center;
   min-width: 7.5rem;
@@ -92,6 +95,18 @@ header h1 {
   font-weight: 700;
   letter-spacing: 0.12em;
   line-height: 1;
+}
+
+.brand-logo-image {
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.brand-logo-image img {
+  display: block;
+  width: 125px;
+  height: auto;
 }
 
 .brand-title {

@@ -7,9 +7,15 @@ import QRCode from 'qrcode'
 import styles from './style.css?raw'
 import brandLogo from './brand-logo.svg?raw'
 import brandIcon from './brand-icon.svg?raw'
+import {
+  brandConfig,
+  brandLogoHtml,
+  escapeHtml,
+  type BrandBindings
+} from './brand'
 import { isHttpUrl, probeDestination } from './ssrf'
 
-type Bindings = {
+type Bindings = BrandBindings & {
   KV: KVNamespace
   /** Optional Teams/Slack incoming webhook for unhandled error alerts. */
   ALERT_WEBHOOK_URL?: string
@@ -194,8 +200,9 @@ const standaloneStatusPage = (opts: {
   redirectAfterMs?: number
   redirectHref?: string
   nonce: string
+  brand: ReturnType<typeof brandConfig>
 }) => {
-  const home = opts.homeHref ?? '/admin/'
+  const home = opts.homeHref ?? opts.brand.homeUrl
   const redirectHref = opts.redirectHref ?? home
   const detail = opts.detail
     ? `<p class="muted">${opts.detail}</p>`
@@ -206,7 +213,7 @@ const standaloneStatusPage = (opts: {
       : 0
   const redirectNote =
     seconds > 0
-      ? `<p id="redirect-note">You will be redirected in <span id="redirect-count">${seconds}</span> seconds.</p>`
+      ? `<p id="redirect-note">You will be redirected in <span id="redirect-count">${seconds}</span> seconds${escapeHtml(opts.brand.redirectHint)}.</p>`
       : ''
   const redirectScript =
     seconds > 0
@@ -237,8 +244,8 @@ const standaloneStatusPage = (opts: {
   </head>
   <body>
     <div class="standalone-status">
-      <a class="standalone-brand" href="/admin/" aria-label="URL Shortener home">
-        <span class="brand-logo" aria-hidden="true">LOGO</span>
+      <a class="standalone-brand" href="/admin/" aria-label="${escapeHtml(opts.brand.ariaLabel)}">
+        ${brandLogoHtml(opts.brand)}
         <span class="brand-title">URL Shortener</span>
       </a>
       <div class="semaphore semaphore-large" role="img" aria-label="${opts.color}" title="${opts.color}">
@@ -251,7 +258,7 @@ const standaloneStatusPage = (opts: {
       ${detail}
       ${redirectNote}
       <p class="mt-24">
-        <a href="${home}">Home</a>
+        <a href="${escapeHtml(home)}">${escapeHtml(opts.brand.homeLabel)}</a>
         &nbsp;·&nbsp;
         <a href="/admin/">Admin</a>
       </p>
@@ -329,10 +336,9 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
       detail: `Checked key: ${key}`,
       color: 'red',
       status: 404,
-      homeHref: '/admin/',
       redirectAfterMs: 10000,
-      redirectHref: '/admin/',
-      nonce: c.get('cspNonce')
+      nonce: c.get('cspNonce'),
+      brand: brandConfig(c.env)
     })
   }
 
@@ -344,7 +350,8 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
         'This short link points to a non-http(s) URL and will not be opened.',
       color: 'red',
       status: 400,
-      nonce: c.get('cspNonce')
+      nonce: c.get('cspNonce'),
+      brand: brandConfig(c.env)
     })
   }
 
@@ -868,12 +875,13 @@ const removeFromTrash = async (
 
 const notifyErrorAlert = async (
   webhookUrl: string | undefined,
-  detail: { path: string; message: string; stack?: string }
+  detail: { path: string; message: string; stack?: string },
+  errorLabel = 'url-shortener unhandled error'
 ) => {
   if (!webhookUrl) return
   try {
     const text = [
-      'url-shortener unhandled error',
+      errorLabel,
       `Path: ${detail.path}`,
       `Message: ${detail.message}`,
       detail.stack ? `Stack: ${detail.stack.slice(0, 500)}` : null
@@ -896,7 +904,10 @@ app.get(
   rateLimit('destination-check', 300, 60, 'json'),
   async (c) => {
     const url = c.req.query('url') || ''
-    const result = await probeDestination(url)
+    const result = await probeDestination(
+      url,
+      brandConfig(c.env).linkcheckUserAgent
+    )
     return c.json({
       ok: true,
       url,
@@ -1478,7 +1489,10 @@ app.post(
     const { url } = c.req.valid('form')
 
     // Server-side destination check (authoritative — blocks unreachable URLs)
-    const probe = await probeDestination(url)
+    const probe = await probeDestination(
+      url,
+      brandConfig(c.env).linkcheckUserAgent
+    )
     if (!probe.reachable) {
       const detail =
         probe.status != null
@@ -2069,7 +2083,7 @@ app.get('/admin/roles', async (c) => {
             id="role-email"
             type="email"
             required
-            placeholder="name@example.com"
+            placeholder={brandConfig(c.env).emailPlaceholder}
             class="history-search"
           />
           <button type="submit">Make superadmin</button>
@@ -2324,7 +2338,8 @@ app.all('*', (c) => {
     message: 'This page does not exist.',
     color: 'red',
     status: 404,
-    nonce: c.get('cspNonce')
+    nonce: c.get('cspNonce'),
+    brand: brandConfig(c.env)
   })
 })
 
@@ -2334,11 +2349,16 @@ app.onError(async (err, c) => {
   const path = new URL(c.req.url).pathname
   const isAdmin = path.startsWith('/admin')
   const message = err instanceof Error ? err.message : 'Unknown error'
-  const alertPromise = notifyErrorAlert(c.env.ALERT_WEBHOOK_URL, {
-    path,
-    message,
-    stack: err instanceof Error ? err.stack : undefined
-  })
+  const brand = brandConfig(c.env)
+  const alertPromise = notifyErrorAlert(
+    c.env.ALERT_WEBHOOK_URL,
+    {
+      path,
+      message,
+      stack: err instanceof Error ? err.stack : undefined
+    },
+    brand.errorLabel
+  )
   if (c.executionCtx?.waitUntil) {
     c.executionCtx.waitUntil(alertPromise)
   } else {
@@ -2367,7 +2387,8 @@ app.onError(async (err, c) => {
     message: 'An unexpected error occurred or the page is not available.',
     color: 'red',
     status: 500,
-    nonce: c.get('cspNonce')
+    nonce: c.get('cspNonce'),
+    brand
   })
 })
 

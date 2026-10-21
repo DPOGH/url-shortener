@@ -7,6 +7,16 @@ const ORIGIN = 'https://short.example'
 type TestEnv = {
   KV: KVNamespace
   SUPERADMIN_EMAILS?: string
+  BRAND_MARK?: string
+  BRAND_ALT?: string
+  BRAND_ARIA_LABEL?: string
+  BRAND_HOME_URL?: string
+  BRAND_HOME_LABEL?: string
+  BRAND_REDIRECT_HINT?: string
+  BRAND_EMAIL_PLACEHOLDER?: string
+  LINKCHECK_USER_AGENT?: string
+  ERROR_LABEL?: string
+  BUILD_VERSION?: string
 }
 
 const request = (path: string, init: RequestInit = {}, env: TestEnv) =>
@@ -41,11 +51,10 @@ describe('URL shortener routes', () => {
     expect(favicon.headers.get('Content-Type')).toContain('image/svg+xml')
     const body = await favicon.text()
     expect(body).toContain('<svg')
-    expect(body).toContain('LOGO')
 
     const logo = await request('/assets/brand-logo.svg', {}, env)
     expect(logo.status).toBe(200)
-    expect(await logo.text()).toContain('LOGO')
+    expect(await logo.text()).toContain('<svg')
   })
 
   it('returns a branded 404 for missing short links and unknown pages', async () => {
@@ -53,8 +62,10 @@ describe('URL shortener routes', () => {
     expect(missing.status).toBe(404)
     const missingHtml = await missing.text()
     expect(missingHtml).toContain('Link not found')
-    expect(missingHtml).toContain('brand-logo')
+    expect(missingHtml).toContain('brand-logo-badge')
     expect(missingHtml).toContain('LOGO')
+    expect(missingHtml).toContain('>Home</a>')
+    expect(missingHtml).toContain('"/admin/"')
 
     const unknown = await request('/does/not/exist', {}, env)
     expect(unknown.status).toBe(404)
@@ -69,7 +80,7 @@ describe('URL shortener routes', () => {
     expect(res.status).toBe(200)
     const html = await res.text()
     expect(html).toContain('value="https://"')
-    expect(html).toContain('brand-logo')
+    expect(html).toContain('brand-logo-badge')
     expect(html).toContain('LOGO')
     const csp = res.headers.get('Content-Security-Policy') || ''
     expect(csp).toContain("default-src 'self'")
@@ -129,6 +140,64 @@ describe('URL shortener routes', () => {
     expect(html).toContain('2026-10-21_002')
     expect(html).toContain('javascript:alert(1)')
     expect(html).not.toContain('href="javascript:alert(1)"')
+  })
+
+  it('applies brand runtime vars without changing the default badge', async () => {
+    const branded: TestEnv = {
+      ...env,
+      BRAND_MARK: 'image',
+      BRAND_ALT: 'Example mark',
+      BRAND_ARIA_LABEL: 'Example shortener home',
+      BRAND_HOME_URL: 'https://example.org/start',
+      BRAND_HOME_LABEL: 'Go to example',
+      BRAND_REDIRECT_HINT: ' to example.org',
+      BRAND_EMAIL_PLACEHOLDER: 'name@example.org',
+      BUILD_VERSION: '2099-01-01_007'
+    }
+    const missing = await request('/zzzzzz', {}, branded)
+    const missingHtml = await missing.text()
+    expect(missingHtml).toContain('src="/assets/brand-logo.svg"')
+    expect(missingHtml).toContain('alt="Example mark"')
+    expect(missingHtml).toContain('aria-label="Example shortener home"')
+    expect(missingHtml).toContain('https://example.org/start')
+    expect(missingHtml).toContain('Go to example')
+    expect(missingHtml).toContain('seconds to example.org.')
+    expect(missingHtml).not.toContain('brand-logo-badge')
+
+    const admin = await request(
+      '/admin/',
+      {
+        headers: {
+          'CF-Access-Authenticated-User-Email': 'user@example.com'
+        }
+      },
+      branded
+    )
+    const adminHtml = await admin.text()
+    expect(adminHtml).toContain('2099-01-01_007')
+    expect(adminHtml).toContain('src="/assets/brand-logo.svg"')
+    expect(adminHtml).not.toContain('2026-10-21_002')
+
+    const roles = await request(
+      '/admin/roles',
+      {
+        headers: {
+          'CF-Access-Authenticated-User-Email': 'super@example.com'
+        }
+      },
+      branded
+    )
+    expect(roles.status).toBe(200)
+    expect(await roles.text()).toContain('placeholder="name@example.org"')
+
+    const unsafe = await request(
+      '/zzzzzz',
+      {},
+      { ...env, BRAND_HOME_URL: 'javascript:alert(1)' }
+    )
+    const unsafeHtml = await unsafe.text()
+    expect(unsafeHtml).toContain('href="/admin/"')
+    expect(unsafeHtml).not.toContain('javascript:')
   })
 
   it('rejects create without CSRF origin', async () => {
