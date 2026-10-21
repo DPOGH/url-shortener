@@ -4,12 +4,9 @@ compatibility_date = "2024-07-12"
 
 main = "dist/_worker.js"
 
-# HOTFIX: workers.dev must stay enabled until Cloudflare Access completes
-# login on toias.link only. Access currently finishes at
-# url-shortener.it-5e9.workers.dev/cdn-cgi/access/authorized; with
-# workers_dev=false that callback 404s and admin login breaks.
-# After Access Application domain is only toias.link, set workers_dev=false
-# again. Preview URLs stay disabled.
+# HOTFIX: keep workers_dev enabled until Access is scoped only to the
+# custom hostname (otherwise the Access authorized callback can 404).
+# After Access is custom-host only, set workers_dev = false.
 workers_dev = true
 preview_urls = false
 
@@ -17,12 +14,13 @@ preview_urls = false
 binding = "KV"
 id = "028b8fbf405f440f8910dfcc0612483b"
 
-# Optional secrets (prefer Cloudflare dashboard for production):
-# - ALERT_WEBHOOK_URL: Teams/Slack incoming webhook for unhandled errors
+# Optional secrets / vars — set in the Cloudflare dashboard (Worker runtime),
+# not as Build variables:
+# - ALERT_WEBHOOK_URL
+# - SUPERADMIN_EMAILS (comma-separated bootstrap superadmin emails)
 #
-# Runtime Worker vars (not Build variables — those do not reach c.env):
-[vars]
-SUPERADMIN_EMAILS = "dario.porru@iasociety.org"
+# Do not commit real mailbox addresses here. If you temporarily need a
+# local override, use `.dev.vars` (gitignored).
 
 
 [observability]
