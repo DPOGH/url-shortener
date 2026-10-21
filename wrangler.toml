@@ -21,6 +21,19 @@ id = "00000000000000000000000000000000"
 # (Settings → Variables and Secrets — not Build variables):
 # - SUPERADMIN_EMAILS  (plain Variable, comma-separated emails)
 # - ALERT_WEBHOOK_URL  (Secret, optional)
+#
+# Optional brand vars. Leave them unset for the anonymous template
+# (LOGO badge, home link /admin/, build stamp from src/version.ts):
+# - BRAND_MARK                 "badge" or "image"
+# - BRAND_ALT
+# - BRAND_ARIA_LABEL
+# - BRAND_HOME_URL             path (/admin/) or http(s) URL
+# - BRAND_HOME_LABEL
+# - BRAND_REDIRECT_HINT        text before the final period
+# - BRAND_EMAIL_PLACEHOLDER
+# - LINKCHECK_USER_AGENT
+# - ERROR_LABEL
+# - BUILD_VERSION              YYYY-MM-DD_NNN
 
 [observability]
 [observability.logs]

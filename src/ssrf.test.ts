@@ -130,6 +130,9 @@ describe('validateProbeUrl / probeDestination', () => {
           return Response.json({ Status: 0, Answer: [] })
         }
         expect(init?.method).toBe('HEAD')
+        expect(new Headers(init?.headers).get('User-Agent')).toBe(
+          'url-shortener-linkcheck/1.0'
+        )
         return new Response(null, { status: 200 })
       })
     )

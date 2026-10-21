@@ -169,7 +169,8 @@ export const validateProbeUrl = async (
 
 /** Probe whether a destination URL looks reachable (admin-only helper). */
 export const probeDestination = async (
-  rawUrl: string
+  rawUrl: string,
+  userAgent = 'url-shortener-linkcheck/1.0'
 ): Promise<{ reachable: boolean; status?: number; error?: string }> => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 5000)
@@ -190,7 +191,7 @@ export const probeDestination = async (
         method: 'HEAD',
         redirect: 'manual',
         signal: controller.signal,
-        headers: { 'User-Agent': 'url-shortener-linkcheck/1.0' }
+        headers: { 'User-Agent': userAgent }
       })
 
       // Some hosts reject HEAD — retry with a light GET. The body is never read.
@@ -201,7 +202,7 @@ export const probeDestination = async (
           redirect: 'manual',
           signal: controller.signal,
           headers: {
-            'User-Agent': 'url-shortener-linkcheck/1.0',
+            'User-Agent': userAgent,
             Range: 'bytes=0-0'
           }
         })
