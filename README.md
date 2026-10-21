@@ -129,7 +129,7 @@ preview_urls = false
 
 `preview_urls` stays disabled. `workers_dev` stays **enabled** because
 Cloudflare Access completes login on
-`url-shortener.it-5e9.workers.dev`. With `workers_dev = false`, that callback
+`toias-link-url-shortener.it-5e9.workers.dev`. With `workers_dev = false`, that callback
 returned 404 and blocked admin access.
 
 Admin routes on `toias.link` and that `workers.dev` hostname are reachable
