@@ -5,8 +5,8 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import QRCode from 'qrcode'
 import styles from './style.css?raw'
-import iasLogo from './ias-logo.svg?raw'
-import iasIcon from './ias-icon.svg?raw'
+import brandLogo from './brand-logo.svg?raw'
+import brandIcon from './brand-icon.svg?raw'
 import { isHttpUrl, probeDestination } from './ssrf'
 
 type Bindings = {
@@ -72,9 +72,9 @@ const svgAsset = (svg: string) => (c: Context<AppEnv>) =>
     'Cache-Control': 'public, max-age=86400'
   })
 
-app.get('/assets/ias-logo.svg', svgAsset(iasLogo))
-app.get('/assets/ias-icon.svg', svgAsset(iasIcon))
-app.get('/favicon.ico', svgAsset(iasIcon))
+app.get('/assets/brand-logo.svg', svgAsset(brandLogo))
+app.get('/assets/brand-icon.svg', svgAsset(brandIcon))
+app.get('/favicon.ico', svgAsset(brandIcon))
 
 const SHORT_KEY_RE = /^[0-9a-z]{6}$/
 
@@ -195,7 +195,7 @@ const standaloneStatusPage = (opts: {
   redirectHref?: string
   nonce: string
 }) => {
-  const home = opts.homeHref ?? 'https://www.iasociety.org'
+  const home = opts.homeHref ?? '/admin/'
   const redirectHref = opts.redirectHref ?? home
   const detail = opts.detail
     ? `<p class="muted">${opts.detail}</p>`
@@ -206,7 +206,7 @@ const standaloneStatusPage = (opts: {
       : 0
   const redirectNote =
     seconds > 0
-      ? `<p id="redirect-note">You will be redirected in <span id="redirect-count">${seconds}</span> seconds to iasociety.org.</p>`
+      ? `<p id="redirect-note">You will be redirected in <span id="redirect-count">${seconds}</span> seconds.</p>`
       : ''
   const redirectScript =
     seconds > 0
@@ -232,14 +232,14 @@ const standaloneStatusPage = (opts: {
     <title>${opts.title}</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" href="/assets/ias-icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/brand-icon.svg" type="image/svg+xml" />
     <style nonce="${opts.nonce}">${styles}</style>
   </head>
   <body>
     <div class="standalone-status">
-      <a class="standalone-brand" href="/admin/" aria-label="IAS URL Shortener home">
+      <a class="standalone-brand" href="/admin/" aria-label="URL Shortener home">
         <span class="brand-logo">
-          <img src="/assets/ias-logo.svg" alt="International AIDS Society" width="155" height="57" />
+          <img src="/assets/brand-logo.svg" alt="URL Shortener" width="155" height="57" />
         </span>
         <span class="brand-title">URL Shortener</span>
       </a>
@@ -253,7 +253,7 @@ const standaloneStatusPage = (opts: {
       ${detail}
       ${redirectNote}
       <p class="mt-24">
-        <a href="${home}">Go to IAS</a>
+        <a href="${home}">Home</a>
         &nbsp;·&nbsp;
         <a href="/admin/">Admin</a>
       </p>
@@ -331,9 +331,9 @@ app.get('/:key{[0-9a-z]{6}}', async (c) => {
       detail: `Checked key: ${key}`,
       color: 'red',
       status: 404,
-      homeHref: 'https://www.iasociety.org',
+      homeHref: '/admin/',
       redirectAfterMs: 10000,
-      redirectHref: 'https://www.iasociety.org',
+      redirectHref: '/admin/',
       nonce: c.get('cspNonce')
     })
   }
@@ -875,7 +875,7 @@ const notifyErrorAlert = async (
   if (!webhookUrl) return
   try {
     const text = [
-      'toias.link unhandled error',
+      'url-shortener unhandled error',
       `Path: ${detail.path}`,
       `Message: ${detail.message}`,
       detail.stack ? `Stack: ${detail.stack.slice(0, 500)}` : null
@@ -2071,7 +2071,7 @@ app.get('/admin/roles', async (c) => {
             id="role-email"
             type="email"
             required
-            placeholder="name@iasociety.org"
+            placeholder="name@example.com"
             class="history-search"
           />
           <button type="submit">Make superadmin</button>
@@ -2330,7 +2330,7 @@ app.all('*', (c) => {
   })
 })
 
-// Clearer global errors (no silent redirect to iasociety.org)
+// Clearer global errors (do not silently redirect away from the app)
 app.onError(async (err, c) => {
   console.error('Unhandled error:', err)
   const path = new URL(c.req.url).pathname

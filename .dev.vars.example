@@ -1,0 +1,2 @@
+# Local-only Worker vars (gitignored as .dev.vars)
+# SUPERADMIN_EMAILS=you@example.com

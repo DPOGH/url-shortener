@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img">
+  <title>URL Shortener</title>
+  <rect width="64" height="64" rx="12" fill="#1a1a1a"/>
+  <path d="M18 32c0-5.523 4.477-10 10-10h8v5h-8a5 5 0 000 10h8v5h-8c-5.523 0-10-4.477-10-10zm12-3h16v5H30v-5zm14-7h8c5.523 0 10 4.477 10 10s-4.477 10-10 10h-8v-5h8a5 5 0 000-10h-8v-5z" fill="#e8e8e8"/>
+</svg>

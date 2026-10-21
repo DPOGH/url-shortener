@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import app from './index'
 import { createMemoryKv } from './test/memory-kv'
 
-const ORIGIN = 'https://toias.link'
+const ORIGIN = 'https://short.example'
 
 type TestEnv = {
   KV: KVNamespace
@@ -20,7 +20,7 @@ describe('URL shortener routes', () => {
     kv = createMemoryKv()
     env = {
       KV: kv,
-      SUPERADMIN_EMAILS: 'super@iasociety.org'
+      SUPERADMIN_EMAILS: 'super@example.com'
     }
   })
 
@@ -35,16 +35,17 @@ describe('URL shortener routes', () => {
     expect(res.headers.get('Location')).toBe('/admin/')
   })
 
-  it('serves the IAS favicon and logo', async () => {
+  it('serves the favicon and brand logo', async () => {
     const favicon = await request('/favicon.ico', {}, env)
     expect(favicon.status).toBe(200)
     expect(favicon.headers.get('Content-Type')).toContain('image/svg+xml')
     const body = await favicon.text()
     expect(body).toContain('<svg')
+    expect(body).toContain('URL Shortener')
 
-    const logo = await request('/assets/ias-logo.svg', {}, env)
+    const logo = await request('/assets/brand-logo.svg', {}, env)
     expect(logo.status).toBe(200)
-    expect(await logo.text()).toContain('International AIDS Society')
+    expect(await logo.text()).toContain('URL Shortener')
   })
 
   it('returns a branded 404 for missing short links and unknown pages', async () => {
@@ -52,14 +53,14 @@ describe('URL shortener routes', () => {
     expect(missing.status).toBe(404)
     const missingHtml = await missing.text()
     expect(missingHtml).toContain('Link not found')
-    expect(missingHtml).toContain('ias-logo.svg')
+    expect(missingHtml).toContain('brand-logo.svg')
 
     const unknown = await request('/does/not/exist', {}, env)
     expect(unknown.status).toBe(404)
     const unknownHtml = await unknown.text()
     expect(unknownHtml).toContain('Page not found')
-    expect(unknownHtml).not.toContain('2026-10-21_001')
-    expect(missingHtml).not.toContain('2026-10-21_001')
+    expect(unknownHtml).not.toContain('2026-10-21_002')
+    expect(missingHtml).not.toContain('2026-10-21_002')
   })
 
   it('renders the create form with https:// prefilled', async () => {
@@ -76,16 +77,16 @@ describe('URL shortener routes', () => {
       '/admin/',
       {
         headers: {
-          'CF-Access-Authenticated-User-Email': 'user@iasociety.org'
+          'CF-Access-Authenticated-User-Email': 'user@example.com'
         }
       },
       env
     )
     const userHtml = await asUser.text()
-    expect(userHtml).toContain('Signed in as user@iasociety.org')
+    expect(userHtml).toContain('Signed in as user@example.com')
     expect(userHtml).toContain('href="/cdn-cgi/access/logout"')
     expect(userHtml).toContain('Logout')
-    expect(userHtml).toContain('2026-10-21_001')
+    expect(userHtml).toContain('2026-10-21_002')
     expect(userHtml).toContain('class="build-version"')
     expect(userHtml).not.toContain('href="/admin/roles"')
 
@@ -93,7 +94,7 @@ describe('URL shortener routes', () => {
       '/admin/',
       {
         headers: {
-          'CF-Access-Authenticated-User-Email': 'super@iasociety.org'
+          'CF-Access-Authenticated-User-Email': 'super@example.com'
         }
       },
       env
@@ -103,7 +104,7 @@ describe('URL shortener routes', () => {
     expect(superHtml).toContain('href="/admin/roles"')
     expect(superHtml).toContain('Manage roles')
     expect(superHtml).toContain('href="/cdn-cgi/access/logout"')
-    expect(superHtml).toContain('2026-10-21_001')
+    expect(superHtml).toContain('2026-10-21_002')
   })
 
   it('shows the build stamp on history and does not link non-http destinations', async () => {
@@ -114,14 +115,14 @@ describe('URL shortener routes', () => {
           key: 'abc123',
           url: 'javascript:alert(1)',
           createdAt: '2026-10-21T00:00:00.000Z',
-          createdBy: 'user@iasociety.org'
+          createdBy: 'user@example.com'
         }
       ])
     )
     const res = await request('/admin/history', {}, env)
     expect(res.status).toBe(200)
     const html = await res.text()
-    expect(html).toContain('2026-10-21_001')
+    expect(html).toContain('2026-10-21_002')
     expect(html).toContain('javascript:alert(1)')
     expect(html).not.toContain('href="javascript:alert(1)"')
   })
@@ -170,7 +171,7 @@ describe('URL shortener routes', () => {
           'Content-Type': 'application/x-www-form-urlencoded',
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'tester@iasociety.org'
+          'CF-Access-Authenticated-User-Email': 'tester@example.com'
         },
         body: 'url=' + encodeURIComponent('https://example.com/docs')
       },
@@ -187,7 +188,7 @@ describe('URL shortener routes', () => {
     }>
     expect(history).toHaveLength(1)
     expect(history[0].url).toBe('https://example.com/docs')
-    expect(history[0].createdBy).toBe('tester@iasociety.org')
+    expect(history[0].createdBy).toBe('tester@example.com')
     expect(await kv.get(history[0].key)).toBe('https://example.com/docs')
 
     const audit = JSON.parse((await kv.get('__audit__')) || '[]') as Array<{
@@ -196,7 +197,7 @@ describe('URL shortener routes', () => {
     }>
     expect(audit[0]).toMatchObject({
       action: 'create',
-      actor: 'tester@iasociety.org'
+      actor: 'tester@example.com'
     })
 
     const redirect = await request(`/${history[0].key}`, {}, env)
@@ -243,7 +244,7 @@ describe('URL shortener routes', () => {
           key: 'abc123',
           url: 'https://example.com/x',
           createdAt: new Date().toISOString(),
-          createdBy: 'owner@iasociety.org'
+          createdBy: 'owner@example.com'
         }
       ])
     )
@@ -255,7 +256,7 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'other@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'other@example.com',
           'Content-Type': 'application/json'
         }
       },
@@ -271,7 +272,7 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'owner@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'owner@example.com',
           'Content-Type': 'application/json'
         }
       },
@@ -288,7 +289,7 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'other@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'other@example.com',
           'Content-Type': 'application/json'
         }
       },
@@ -303,7 +304,7 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'super@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'super@example.com',
           'Content-Type': 'application/json'
         }
       },
@@ -318,7 +319,7 @@ describe('URL shortener routes', () => {
       '/admin/',
       {
         headers: {
-          'CF-Access-Authenticated-User-Email': 'first.time@iasociety.org'
+          'CF-Access-Authenticated-User-Email': 'first.time@example.com'
         }
       },
       env
@@ -333,11 +334,11 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'super@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'super@example.com',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          email: 'first.time@iasociety.org',
+          email: 'first.time@example.com',
           role: 'user'
         })
       },
@@ -352,11 +353,11 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'user@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'user@example.com',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          email: 'new.admin@iasociety.org'
+          email: 'new.admin@example.com'
         })
       },
       env
@@ -370,11 +371,11 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'super@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'super@example.com',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          email: 'new.admin@iasociety.org'
+          email: 'new.admin@example.com'
         })
       },
       env
@@ -384,8 +385,8 @@ describe('URL shortener routes', () => {
       string,
       string
     >
-    expect(roles['new.admin@iasociety.org']).toBe('superadmin')
-    expect(roles['first.time@iasociety.org']).toBeUndefined()
+    expect(roles['new.admin@example.com']).toBe('superadmin')
+    expect(roles['first.time@example.com']).toBeUndefined()
 
     await kv.put('role01', 'https://example.com/role')
     await kv.put(
@@ -395,7 +396,7 @@ describe('URL shortener routes', () => {
           key: 'role01',
           url: 'https://example.com/role',
           createdAt: new Date().toISOString(),
-          createdBy: 'owner@iasociety.org'
+          createdBy: 'owner@example.com'
         }
       ])
     )
@@ -406,7 +407,7 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'new.admin@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'new.admin@example.com',
           'Content-Type': 'application/json'
         }
       },
@@ -421,11 +422,11 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'super@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'super@example.com',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          email: 'new.admin@iasociety.org'
+          email: 'new.admin@example.com'
         })
       },
       env
@@ -435,7 +436,7 @@ describe('URL shortener routes', () => {
       string,
       string
     >
-    expect(after['new.admin@iasociety.org']).toBeUndefined()
+    expect(after['new.admin@example.com']).toBeUndefined()
   })
 
   it('rebuilds orphan short links into History', async () => {
@@ -448,7 +449,7 @@ describe('URL shortener routes', () => {
           key: 'listed',
           url: 'https://example.com/listed',
           createdAt: '2026-01-01T00:00:00.000Z',
-          createdBy: 'owner@iasociety.org'
+          createdBy: 'owner@example.com'
         }
       ])
     )
@@ -460,7 +461,7 @@ describe('URL shortener routes', () => {
         headers: {
           Origin: ORIGIN,
           'Sec-Fetch-Site': 'same-origin',
-          'CF-Access-Authenticated-User-Email': 'owner@iasociety.org',
+          'CF-Access-Authenticated-User-Email': 'owner@example.com',
           'Content-Type': 'application/json'
         }
       },
@@ -496,7 +497,7 @@ describe('URL shortener routes', () => {
       '/admin/check-destination?url=' +
       encodeURIComponent('https://example.com/')
     const headers = {
-      'CF-Access-Authenticated-User-Email': 'ratelimit@iasociety.org'
+      'CF-Access-Authenticated-User-Email': 'ratelimit@example.com'
     }
 
     for (let i = 0; i < 300; i++) {
