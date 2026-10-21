@@ -190,7 +190,7 @@ export const probeDestination = async (
         method: 'HEAD',
         redirect: 'manual',
         signal: controller.signal,
-        headers: { 'User-Agent': 'toias.link-linkcheck/1.0' }
+        headers: { 'User-Agent': 'url-shortener-linkcheck/1.0' }
       })
 
       // Some hosts reject HEAD — retry with a light GET. The body is never read.
@@ -201,7 +201,7 @@ export const probeDestination = async (
           redirect: 'manual',
           signal: controller.signal,
           headers: {
-            'User-Agent': 'toias.link-linkcheck/1.0',
+            'User-Agent': 'url-shortener-linkcheck/1.0',
             Range: 'bytes=0-0'
           }
         })

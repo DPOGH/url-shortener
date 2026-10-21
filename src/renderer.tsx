@@ -14,19 +14,19 @@ export const renderer = jsxRenderer<RendererEnv>(({ children, title }, c) => {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/assets/ias-icon.svg" type="image/svg+xml" />
+        <link rel="icon" href="/assets/brand-icon.svg" type="image/svg+xml" />
         <style nonce={c.get('cspNonce')}>{styles}</style>
         <title>{title}</title>
       </head>
       <body>
         <header>
-          <a class="brand" href="/admin/" aria-label="IAS URL Shortener home">
+          <a class="brand" href="/admin/" aria-label="URL Shortener home">
             <span class="brand-logo">
               <img
-                src="/assets/ias-logo.svg"
-                alt="International AIDS Society"
-                width="155"
-                height="57"
+                src="/assets/brand-logo.svg"
+                alt="LOGO"
+                width="160"
+                height="56"
               />
             </span>
             <span class="brand-title">URL Shortener</span>

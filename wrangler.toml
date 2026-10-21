@@ -1,27 +1,26 @@
 # wrangler.toml
-name = 'toias-link-url-shortener'
+name = 'url-shortener'
 compatibility_date = "2024-07-12"
 
 main = "dist/_worker.js"
 
-# workers.dev stays enabled because Cloudflare Access completes login at
-# toias-link-url-shortener.it-5e9.workers.dev/cdn-cgi/access/authorized. With
-# workers_dev=false that callback 404s and admin login breaks.
-# That hostname is reachable only through Access. Preview URLs stay disabled.
+# Keep workers_dev enabled until Cloudflare Access is scoped only to your
+# custom hostname (otherwise the Access authorized callback can 404).
+# Preview URLs stay disabled.
 workers_dev = true
 preview_urls = false
 
 [[kv_namespaces]]
 binding = "KV"
-id = "028b8fbf405f440f8910dfcc0612483b"
+# Replace this placeholder with your KV namespace id:
+#   npx wrangler kv namespace create URL_SHORTENER
+id = "00000000000000000000000000000000"
 
-# Optional secrets (prefer Cloudflare dashboard for production):
-# - ALERT_WEBHOOK_URL: Teams/Slack incoming webhook for unhandled errors
-#
-# Runtime Worker vars (not Build variables — those do not reach c.env):
-[vars]
-SUPERADMIN_EMAILS = "dario.porru@iasociety.org"
-
+# Do not commit real mailbox addresses or secrets.
+# Set these in the Cloudflare dashboard as Worker *runtime* Variables/Secrets
+# (Settings → Variables and Secrets — not Build variables):
+# - SUPERADMIN_EMAILS  (plain Variable, comma-separated emails)
+# - ALERT_WEBHOOK_URL  (Secret, optional)
 
 [observability]
 [observability.logs]

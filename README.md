@@ -1,32 +1,30 @@
-# IAS URL Shortener
+# URL Shortener
 
-Internal URL-shortening service for IAS, deployed on Cloudflare at
-[toias.link](https://toias.link).
+Hono-based URL shortener for Cloudflare Workers and KV. Originally based on
+[Yusuke Wada’s tutorial](https://github.com/yusukebe/url-shortener); this fork
+adds destination checks, soft-delete, audit logging, Access-aware roles, and
+stricter security defaults.
 
-The administration area is protected by Cloudflare Access and Microsoft Entra
-ID. Short URLs remain public so recipients can open them without signing in.
+The administration UI is intended to sit behind **Cloudflare Access** (SSO).
+Short links (`/<six-character-key>`) stay public.
 
 ## Features
 
 - Six-character short URLs stored in Cloudflare KV
-- Destination validation before link creation
-- SSRF-safe reachability checks
-- Local QR code generation with no third-party service
-- Searchable History with destination status indicators
-- Soft delete with Trash restore / permanent purge
-- Delete/restore/purge limited to the creator or configured superadmins
-- “Find missing links” rebuilds active KV keys missing from History
-- Create/delete/restore/purge audit log with authenticated user identity
+- Destination validation before link creation (SSRF-safe)
+- Local QR code generation (no third-party QR APIs)
+- Searchable History, Trash (soft delete), and Audit log
+- Creator / superadmin authorization for delete, restore, and purge
+- Rebuild orphan KV keys into History
+- CSRF protection, CSP nonces (no `unsafe-inline`), rate limits
 - Optional webhook alerts for unhandled errors
-- Strict security headers, CSRF protection, and rate limiting
-- No automatic expiration for links or History
-- Copy URL and QR actions
-- Weekly Dependabot update checks
+- Deploy version stamp on admin pages (`BUILD_VERSION` in `src/version.ts`)
 
 ## Screenshots
 
-Captured from the running application (local Worker preview). You can replace
-these with production captures from `toias.link` if preferred.
+Local preview captures with a placeholder **LOGO** badge and public sample
+URLs (`example.com`, `short.example`). Replace with your own branding if you
+fork.
 
 ### Create
 
@@ -48,6 +46,10 @@ these with production captures from `toias.link` if preferred.
 
 ![Audit log](docs/screenshots/audit.png)
 
+### Roles
+
+![Roles page](docs/screenshots/roles.png)
+
 ## Stack
 
 | Component | Purpose |
@@ -56,11 +58,8 @@ these with production captures from `toias.link` if preferred.
 | Zod | Input validation |
 | Vite | Development and production builds |
 | Cloudflare Workers | Application runtime |
-| Cloudflare KV | Links, History, audit events, and rate limits |
-| Cloudflare Access | Entra ID authentication for `/admin/*` |
-
-The main application is in `src/index.tsx`, the shared renderer in
-`src/renderer.tsx`, and local styles in `src/style.css`.
+| Cloudflare KV | Links, History, Trash, roles, audit, rate limits |
+| Cloudflare Access | Authentication for `/admin/*` |
 
 ## Routes
 
@@ -68,25 +67,14 @@ The main application is in `src/index.tsx`, the shared renderer in
 | --- | --- | --- |
 | `/admin/` | Authenticated | Create a short link |
 | `/admin/history` | Authenticated | Review and soft-delete links |
-| `/admin/trash` | Authenticated | Restore or permanently purge deleted links |
-| `/admin/audit` | Authenticated | Review create/delete/restore/purge events |
+| `/admin/trash` | Authenticated | Restore or permanently purge |
+| `/admin/audit` | Authenticated | Review events |
+| `/admin/roles` | Superadmin | Grant / revoke superadmin |
 | `/<six-character-key>` | Public | Redirect to the destination |
-
-Missing links display an error page and redirect to
-`https://www.iasociety.org` after ten seconds.
-
-Cloudflare Access policies are managed outside this repository. The intended
-policy is authenticated access to `/admin/*` and public bypass for short-link
-routes.
 
 ## Local development
 
-Requirements:
-
-- Node.js 22.12 or newer
-- npm
-
-Install and start:
+Requirements: Node.js 22.12+ and npm.
 
 ```bash
 git clone https://github.com/DPOGH/url-shortener.git
@@ -95,14 +83,14 @@ npm ci
 npm run dev
 ```
 
-For a Worker-compatible preview with local KV:
+Worker-compatible preview with local KV:
 
 ```bash
 npm run build
 npm run preview
 ```
 
-Local KV data is separate from production data.
+Copy `.dev.vars.example` to `.dev.vars` for local runtime vars (gitignored).
 
 Before submitting changes:
 
@@ -114,126 +102,113 @@ npm audit --audit-level=low
 npx wrangler deploy --dry-run
 ```
 
-Automated tests cover SSRF host/IP filtering, CSRF protection, create/delete
-flows, redirects, favicon/404 pages, CSP headers, and admin rate limits.
+## Install on Cloudflare Workers
 
-## Configuration
-
-Cloudflare configuration is stored in `wrangler.toml`. The application requires
-a KV namespace bound as `KV`.
-
-```toml
-workers_dev = true   # Access login callback — see below
-preview_urls = false
-```
-
-`preview_urls` stays disabled. `workers_dev` stays **enabled** because
-Cloudflare Access completes login on
-`toias-link-url-shortener.it-5e9.workers.dev`. With `workers_dev = false`, that callback
-returned 404 and blocked admin access.
-
-Admin routes on `toias.link` and that `workers.dev` hostname are reachable
-only through Cloudflare Access. Short links stay public.
-
-Never commit API tokens, Access credentials, or `.dev.vars`.
-
-## Deployment
-
-Production is connected to GitHub through Cloudflare Workers Builds:
-
-1. Open a pull request into `main`.
-2. Wait for `Workers Builds: url-shortener` to pass.
-3. Review and merge the pull request.
-4. Cloudflare automatically builds and deploys `main`.
-5. Verify the result on `toias.link`.
-
-An authenticated operator can deploy manually with:
+### 1. Create a KV namespace
 
 ```bash
-npm run deploy
+npx wrangler kv namespace create URL_SHORTENER
 ```
 
-The GitHub-connected workflow is preferred.
+Put the returned **id** into `wrangler.toml`:
+
+```toml
+[[kv_namespaces]]
+binding = "KV"
+id = "<your-kv-namespace-id>"
+```
+
+### 2. Create / connect the Worker
+
+**Option A — Workers Builds (GitHub, recommended)**
+
+1. Cloudflare Dashboard → **Workers & Pages** → **Create** → connect this GitHub repository.
+2. Build command: `npm run build`
+3. Deploy with Wrangler / Workers Builds using this `wrangler.toml` (`main = "dist/_worker.js"`).
+4. Production branch: `main`.
+5. After the first deploy, attach a custom domain if you want (e.g. `short.example.com`).
+
+**Option B — CLI**
+
+```bash
+npm ci
+npm run build
+npx wrangler deploy
+```
+
+### 3. Cloudflare Access (admin only)
+
+1. Zero Trust → **Access** → **Applications** → protect your hostname.
+2. Policy: allow your org emails / IdP (e.g. Microsoft Entra).
+3. Protect `/admin*`; keep short-link paths public (bypass or separate app).
+4. Until Access is scoped **only** to the custom hostname, keep `workers_dev = true` in `wrangler.toml` so the Access login callback can complete. Then set `workers_dev = false` if you no longer need `*.workers.dev`.
+
+### 4. Bootstrap superadmin (`SUPERADMIN_EMAILS`) — important
+
+Everyone who signs in via Access is a **`user` by default** (including the first
+visit). You do **not** assign the `user` role.
+
+The first **superadmin** must be bootstrapped with a **Worker runtime variable**:
+
+1. Cloudflare Dashboard → **Workers & Pages** → your Worker (`url-shortener`).
+2. **Settings** → **Variables and Secrets**.
+3. Under **Variables** for the Worker runtime (**not** “Build variables”, **not**
+   the section that lists Deploy Hooks):
+   - Type: **Variable** (plaintext)
+   - Name: `SUPERADMIN_EMAILS`
+   - Value: comma-separated emails, e.g. `admin@example.com,ops@example.com`
+4. **Save** / Deploy if prompted.
+
+Notes:
+
+- Build variables do **not** reach `c.env` in the Worker. Only runtime Variables
+  (or `[vars]` in `wrangler.toml`) do.
+- Prefer the dashboard over committing real emails in git.
+- After bootstrap, superadmins manage others at `/admin/roles` (grant/revoke
+  `superadmin` only). The last effective superadmin cannot be removed.
+- Optional secret: `ALERT_WEBHOOK_URL` for Teams/Slack error webhooks
+  (`wrangler secret put ALERT_WEBHOOK_URL` or dashboard Secret).
+
+### 5. Verify
+
+- Open `/admin/` → Access login → create a short link.
+- As a bootstrap email you should see **(superadmin)** and **Roles**.
+- Open a short URL without auth; it should redirect to the destination.
+
+## Roles (user / superadmin)
+
+| Role | Who | Capabilities |
+| --- | --- | --- |
+| `user` | Default for every Access login | Create links; manage only own links |
+| `superadmin` | `SUPERADMIN_EMAILS` and/or `/admin/roles` grants | Manage any link; assign superadmins |
+
+Only superadmin grants are stored in KV (`__roles__`).
 
 ## Storage
 
 | KV key | Content |
 | --- | --- |
 | `<six-character-key>` | Destination URL |
-| `__history__` | Latest 5000 History records (page shows 100 at a time) |
+| `__history__` | Latest 5000 History records |
 | `__trash__` | Latest 1000 soft-deleted links |
-| `__roles__` | Email → `superadmin` grants only (everyone else is user) |
-| `__audit__` | Latest 1000 create/delete/restore/purge/role events |
+| `__roles__` | Email → `superadmin` grants |
+| `__audit__` | Latest 1000 audit events |
 | `__rate__:*` | Temporary rate-limit counters |
-
-History and audit lists have count limits but no time-based expiration.
-Cloudflare KV is eventually consistent.
 
 ## Security
 
-- Cloudflare Access protects all administration routes.
-- Only HTTP and HTTPS destinations are accepted.
-- DNS and every redirect target are checked before probing.
-- Private, loopback, link-local, reserved, and non-public IPs are blocked.
-- Destination checks have a five-second timeout and five-redirect limit.
-- Create, check, and delete actions are rate limited through KV.
-- Unsafe requests require same-site Origin and Fetch Metadata headers.
-- CSP uses per-request nonces without `unsafe-inline`.
-- HSTS, anti-clickjacking, MIME, referrer, permission, and cross-origin headers
-  are enabled.
-- UI assets and QR generation do not depend on third-party CDNs.
-- Preview URLs stay disabled. `workers_dev` stays enabled for the Access
-  login callback. Admin hostnames are reachable only through Cloudflare Access.
+- Cloudflare Access for `/admin/*`
+- HTTP(S) destinations only; DoH-based SSRF checks; private IP blocked
+- CSRF (Origin / Fetch Metadata), CSP nonces, HSTS, and related headers
+- Rate limits on create / check / delete-style admin actions
+- No third-party CDNs for UI or QR
 
-Do not disclose sensitive URLs or exploit details in public issues. Report
-security concerns through the IAS internal IT/security channel.
-
-## Maintenance
-
-Dependabot checks npm dependencies weekly, requests review from `DPOGH`, and
-does not merge updates automatically.
-
-Use:
-
-- `/admin/history` to inspect destinations and move links to Trash;
-- `/admin/trash` to restore or permanently purge deleted links;
-- `/admin/audit` to identify who created, deleted, restored, or purged a link;
-- Cloudflare Worker logs for runtime errors and structured audit events.
-
-### Roles (user / superadmin)
-
-- Everyone who signs in via Cloudflare Access is a `user` by default, including
-  the first visit. No role assignment is required.
-- Users can create links and manage only their own.
-- Superadmins can manage any link and open `/admin/roles` to grant or revoke
-  `superadmin` for other IAS emails. The `user` role is never assigned manually.
-- Only superadmin grants are stored in KV (`__roles__`).
-- Bootstrap superadmins via runtime Worker var `SUPERADMIN_EMAILS` (set in
-  `wrangler.toml` `[vars]` or Worker **Settings → Variables**, not Build
-  variables). Example: `dario.porru@iasociety.org`.
-- Admin pages show **Signed in as …** and **Logout**
-  (`/cdn-cgi/access/logout`) to clear the Cloudflare Access session cookie.
-- The last effective superadmin cannot be removed.
-
-### Find missing links
-
-On `/admin/history`, **Find missing links** scans KV for active six-character
-keys that are not in History (and not in Trash) and appends them as
-`legacy / unknown`. Creation date/owner cannot be recovered for those entries.
-
-### Error alerts
-
-Unhandled Worker errors are always written to Cloudflare logs. To also receive a
-Teams or Slack message, set the secret `ALERT_WEBHOOK_URL` to an incoming
-webhook URL in the Cloudflare dashboard (or with
-`wrangler secret put ALERT_WEBHOOK_URL`).
-
-Also enable Cloudflare Notifications for Worker error spikes if you want
-dashboard/email alerts without a webhook.
+Do not commit API tokens, Access credentials, or `.dev.vars`. Prefer reporting
+security issues privately to the repository maintainers.
 
 ## License
 
 Licensed under the [MIT License](LICENSE).
 
 Originally based on Yusuke Wada's
-[Hono URL Shortener tutorial](https://github.com/yusukebe/url-shortener).
+[Hono URL Shortener](https://github.com/yusukebe/url-shortener).
