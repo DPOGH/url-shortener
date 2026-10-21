@@ -297,6 +297,7 @@ const csrfProtect = (
           403
         )
       }
+      c.status(403)
       return c.render(
         <div class="status-layout">
           <Semaphore color="red" />
@@ -1018,7 +1019,13 @@ app.get('/admin/history', async (c) => {
                     data-url={item.url}
                     title="Checking destination..."
                   />
-                  <a href={item.url}>{item.url}</a>
+                  {isHttpUrl(item.url) ? (
+                    <a href={item.url} rel="nofollow noopener noreferrer">
+                      {item.url}
+                    </a>
+                  ) : (
+                    <span>{item.url}</span>
+                  )}
                 </td>
                 <td>
                   <a href={shortUrl}>{shortUrl}</a>

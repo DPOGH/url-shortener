@@ -1,5 +1,6 @@
 import { jsxRenderer } from 'hono/jsx-renderer'
 import styles from './style.css?raw'
+import { BUILD_VERSION } from './version'
 
 type RendererEnv = {
   Variables: {
@@ -32,6 +33,9 @@ export const renderer = jsxRenderer<RendererEnv>(({ children, title }, c) => {
           </a>
         </header>
         <div>{children}</div>
+        {new URL(c.req.url).pathname.startsWith('/admin') ? (
+          <footer class="build-version">{BUILD_VERSION}</footer>
+        ) : null}
       </body>
     </html>
   )

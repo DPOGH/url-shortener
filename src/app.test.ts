@@ -56,7 +56,10 @@ describe('URL shortener routes', () => {
 
     const unknown = await request('/does/not/exist', {}, env)
     expect(unknown.status).toBe(404)
-    expect(await unknown.text()).toContain('Page not found')
+    const unknownHtml = await unknown.text()
+    expect(unknownHtml).toContain('Page not found')
+    expect(unknownHtml).not.toContain('2026-10-21_001')
+    expect(missingHtml).not.toContain('2026-10-21_001')
   })
 
   it('renders the create form with https:// prefilled', async () => {
@@ -82,6 +85,8 @@ describe('URL shortener routes', () => {
     expect(userHtml).toContain('Signed in as user@iasociety.org')
     expect(userHtml).toContain('href="/cdn-cgi/access/logout"')
     expect(userHtml).toContain('Logout')
+    expect(userHtml).toContain('2026-10-21_001')
+    expect(userHtml).toContain('class="build-version"')
     expect(userHtml).not.toContain('href="/admin/roles"')
 
     const asSuper = await request(
@@ -98,6 +103,27 @@ describe('URL shortener routes', () => {
     expect(superHtml).toContain('href="/admin/roles"')
     expect(superHtml).toContain('Manage roles')
     expect(superHtml).toContain('href="/cdn-cgi/access/logout"')
+    expect(superHtml).toContain('2026-10-21_001')
+  })
+
+  it('shows the build stamp on history and does not link non-http destinations', async () => {
+    await kv.put(
+      '__history__',
+      JSON.stringify([
+        {
+          key: 'abc123',
+          url: 'javascript:alert(1)',
+          createdAt: '2026-10-21T00:00:00.000Z',
+          createdBy: 'user@iasociety.org'
+        }
+      ])
+    )
+    const res = await request('/admin/history', {}, env)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('2026-10-21_001')
+    expect(html).toContain('javascript:alert(1)')
+    expect(html).not.toContain('href="javascript:alert(1)"')
   })
 
   it('rejects create without CSRF origin', async () => {
@@ -110,7 +136,7 @@ describe('URL shortener routes', () => {
       },
       env
     )
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(403)
     expect(await res.text()).toContain('CSRF')
   })
 

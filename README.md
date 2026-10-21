@@ -184,7 +184,9 @@ Cloudflare KV is eventually consistent.
 - HSTS, anti-clickjacking, MIME, referrer, permission, and cross-origin headers
   are enabled.
 - UI assets and QR generation do not depend on third-party CDNs.
-- `workers.dev` and version-preview hostnames are disabled.
+- Preview URLs stay disabled. `workers_dev` is temporarily enabled so Access
+  login can finish; see Configuration. That hostname must stay behind Access,
+  or be turned off, because the Worker trusts Access identity headers.
 
 Do not disclose sensitive URLs or exploit details in public issues. Report
 security concerns through the IAS internal IT/security channel.
