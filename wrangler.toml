@@ -4,12 +4,10 @@ compatibility_date = "2024-07-12"
 
 main = "dist/_worker.js"
 
-# HOTFIX: workers.dev must stay enabled until Cloudflare Access completes
-# login on toias.link only. Access currently finishes at
-# url-shortener.it-5e9.workers.dev/cdn-cgi/access/authorized; with
+# workers.dev stays enabled because Cloudflare Access completes login at
+# url-shortener.it-5e9.workers.dev/cdn-cgi/access/authorized. With
 # workers_dev=false that callback 404s and admin login breaks.
-# After Access Application domain is only toias.link, set workers_dev=false
-# again. Preview URLs stay disabled.
+# That hostname is reachable only through Access. Preview URLs stay disabled.
 workers_dev = true
 preview_urls = false
 

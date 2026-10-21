@@ -123,19 +123,17 @@ Cloudflare configuration is stored in `wrangler.toml`. The application requires
 a KV namespace bound as `KV`.
 
 ```toml
-workers_dev = true   # temporary hotfix — see below
+workers_dev = true   # Access login callback — see below
 preview_urls = false
 ```
 
-`preview_urls` stays disabled. `workers_dev` is temporarily **enabled** because
-Cloudflare Access currently completes login on
+`preview_urls` stays disabled. `workers_dev` stays **enabled** because
+Cloudflare Access completes login on
 `url-shortener.it-5e9.workers.dev`. With `workers_dev = false`, that callback
 returned 404 and blocked admin access.
 
-**Required Cloudflare follow-up:** in Zero Trust → Access → Applications, set
-the application domain to **only** `toias.link` and remove any `*.workers.dev`
-domains. Then set `workers_dev = false` again so alternate hostnames cannot
-bypass Access.
+Admin routes on `toias.link` and that `workers.dev` hostname are reachable
+only through Cloudflare Access. Short links stay public.
 
 Never commit API tokens, Access credentials, or `.dev.vars`.
 
@@ -184,9 +182,8 @@ Cloudflare KV is eventually consistent.
 - HSTS, anti-clickjacking, MIME, referrer, permission, and cross-origin headers
   are enabled.
 - UI assets and QR generation do not depend on third-party CDNs.
-- Preview URLs stay disabled. `workers_dev` is temporarily enabled so Access
-  login can finish; see Configuration. That hostname must stay behind Access,
-  or be turned off, because the Worker trusts Access identity headers.
+- Preview URLs stay disabled. `workers_dev` stays enabled for the Access
+  login callback. Admin hostnames are reachable only through Cloudflare Access.
 
 Do not disclose sensitive URLs or exploit details in public issues. Report
 security concerns through the IAS internal IT/security channel.
