@@ -20,6 +20,35 @@ Short links (`/<six-character-key>`) stay public.
 - Optional webhook alerts for unhandled errors
 - Deploy version stamp on admin pages (`BUILD_VERSION` in `src/version.ts`)
 
+## Screenshots
+
+Local preview captures with placeholder branding (`customlogo`) and sample
+`example.com` / `short.example` URLs. Replace with your own if you fork.
+
+### Create
+
+![Create page](docs/screenshots/create.png)
+
+### History
+
+![History page](docs/screenshots/history.png)
+
+### Trash
+
+![Trash page](docs/screenshots/trash.png)
+
+### Missing short link
+
+![Missing link page](docs/screenshots/missing-link.png)
+
+### Audit log
+
+![Audit log](docs/screenshots/audit.png)
+
+### Roles
+
+![Roles page](docs/screenshots/roles.png)
+
 ## Stack
 
 | Component | Purpose |

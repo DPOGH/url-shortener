@@ -1,14 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="56" viewBox="0 0 200 56" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="56" viewBox="0 0 220 56">
   <title>customlogo</title>
-  <defs>
-    <linearGradient id="clg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#2dd4bf"/>
-      <stop offset="100%" stop-color="#0ea5e9"/>
-    </linearGradient>
-  </defs>
-  <rect width="200" height="56" rx="14" fill="#111827"/>
-  <rect x="2" y="2" width="196" height="52" rx="12" fill="none" stroke="url(#clg)" stroke-width="2"/>
-  <circle cx="28" cy="28" r="12" fill="url(#clg)"/>
-  <path d="M23 28h10M28 23v10" stroke="#0f172a" stroke-width="2.5" stroke-linecap="round"/>
-  <text x="48" y="34" font-family="ui-rounded, 'Segoe UI', system-ui, sans-serif" font-size="20" font-weight="700" fill="#f8fafc" letter-spacing="0.5">customlogo</text>
+  <rect width="220" height="56" rx="12" fill="#f8fafc"/>
+  <rect x="2" y="2" width="216" height="52" rx="10" fill="none" stroke="#06b6d4" stroke-width="3"/>
+  <circle cx="30" cy="28" r="14" fill="#06b6d4"/>
+  <text x="30" y="34" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#ffffff">+</text>
+  <text x="52" y="35" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#0f172a">customlogo</text>
 </svg>
