@@ -82,6 +82,8 @@ describe('URL shortener routes', () => {
     expect(userHtml).toContain('Signed in as user@iasociety.org')
     expect(userHtml).toContain('href="/cdn-cgi/access/logout"')
     expect(userHtml).toContain('Logout')
+    expect(userHtml).toContain('v2026-10-21.1')
+    expect(userHtml).toContain('name="application-version"')
     expect(userHtml).not.toContain('href="/admin/roles"')
 
     const asSuper = await request(
@@ -98,6 +100,7 @@ describe('URL shortener routes', () => {
     expect(superHtml).toContain('href="/admin/roles"')
     expect(superHtml).toContain('Manage roles')
     expect(superHtml).toContain('href="/cdn-cgi/access/logout"')
+    expect(superHtml).toContain('v2026-10-21.1')
   })
 
   it('rejects create without CSRF origin', async () => {
