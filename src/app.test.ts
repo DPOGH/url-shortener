@@ -41,11 +41,11 @@ describe('URL shortener routes', () => {
     expect(favicon.headers.get('Content-Type')).toContain('image/svg+xml')
     const body = await favicon.text()
     expect(body).toContain('<svg')
-    expect(body).toContain('customlogo')
+    expect(body).toContain('LOGO')
 
     const logo = await request('/assets/brand-logo.svg', {}, env)
     expect(logo.status).toBe(200)
-    expect(await logo.text()).toContain('customlogo')
+    expect(await logo.text()).toContain('LOGO')
   })
 
   it('returns a branded 404 for missing short links and unknown pages', async () => {

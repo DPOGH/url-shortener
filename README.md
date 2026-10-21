@@ -22,8 +22,9 @@ Short links (`/<six-character-key>`) stay public.
 
 ## Screenshots
 
-Local preview captures with placeholder branding (`customlogo`) and sample
-`example.com` / `short.example` URLs. Replace with your own if you fork.
+Local preview captures with a placeholder **LOGO** badge and public sample
+URLs (`example.com`, `short.example`). Replace with your own branding if you
+fork.
 
 ### Create
 
