@@ -8,6 +8,7 @@ import styles from './style.css?raw'
 import iasLogo from './ias-logo.svg?raw'
 import iasIcon from './ias-icon.svg?raw'
 import { isHttpUrl, probeDestination } from './ssrf'
+import { APP_VERSION_LABEL } from './version'
 
 type Bindings = {
   KV: KVNamespace
@@ -692,6 +693,7 @@ const adminNav = (opts: {
       {opts.isSuperadmin ? ' (superadmin)' : ''}
       <span> · </span>
       <a href={ACCESS_LOGOUT_PATH}>Logout</a>
+      <span class="muted"> · {APP_VERSION_LABEL}</span>
     </p>
     <p>
       <a href="/admin/">Home</a>

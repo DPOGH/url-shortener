@@ -260,6 +260,12 @@ th {
   font-size: 0.85em;
 }
 
+.app-footer {
+  margin-top: 2rem;
+  padding-bottom: 1rem;
+  font-size: 0.75em;
+}
+
 .word-break {
   word-break: break-all;
 }

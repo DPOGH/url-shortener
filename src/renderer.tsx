@@ -1,5 +1,6 @@
 import { jsxRenderer } from 'hono/jsx-renderer'
 import styles from './style.css?raw'
+import { APP_VERSION_LABEL } from './version'
 
 type RendererEnv = {
   Variables: {
@@ -13,6 +14,7 @@ export const renderer = jsxRenderer<RendererEnv>(({ children, title }, c) => {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="application-version" content={APP_VERSION_LABEL} />
         <link rel="icon" href="/assets/ias-icon.svg" type="image/svg+xml" />
         <style nonce={c.get('cspNonce')}>{styles}</style>
         <title>{title}</title>
@@ -32,6 +34,7 @@ export const renderer = jsxRenderer<RendererEnv>(({ children, title }, c) => {
           </a>
         </header>
         <div>{children}</div>
+        <footer class="app-footer muted">{APP_VERSION_LABEL}</footer>
       </body>
     </html>
   )

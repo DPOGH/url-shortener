@@ -22,6 +22,10 @@ ID. Short URLs remain public so recipients can open them without signing in.
 - No automatic expiration for links or History
 - Copy URL and QR actions
 - Weekly Dependabot update checks
+- Deploy version stamp in the admin UI (`vYYYY-MM-DD.N`)
+
+Bump `APP_VERSION` in `src/version.ts` (and `package.json` `version`) on each
+intentional production release so operators can confirm which build is live.
 
 ## Screenshots
 
