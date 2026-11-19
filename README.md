@@ -141,7 +141,15 @@ npx wrangler deploy
 1. Zero Trust → **Access** → **Applications** → protect your hostname.
 2. Policy: allow your org emails / IdP (e.g. Microsoft Entra).
 3. Protect `/admin*`; keep short-link paths public (bypass or separate app).
-4. Until Access is scoped **only** to the custom hostname, keep `workers_dev = true` in `wrangler.toml` so the Access login callback can complete. Then set `workers_dev = false` if you no longer need `*.workers.dev`.
+4. Keep `workers_dev = true`. Access finishes login at
+   `https://<worker-name>.<account>.workers.dev/cdn-cgi/access/authorized`,
+   where `<worker-name>` is the `name` in `wrangler.toml`. That hostname must
+   be one of the Access application domains. If the Worker is renamed, update
+   Access in the same change. An old `*.workers.dev` name returns Cloudflare
+   error 1042 and the browser never reaches `/admin/`.
+5. Leave `preview_urls = false` unless you explicitly want public preview URLs.
+   Do not set `workers_dev = false` until a login started on your custom
+   hostname returns to `/admin/` without using `workers.dev`.
 
 ### 4. Bootstrap superadmin (`SUPERADMIN_EMAILS`) — important
 
