@@ -4,8 +4,10 @@ compatibility_date = "2024-07-12"
 
 main = "dist/_worker.js"
 
-# Keep workers_dev enabled until Cloudflare Access is scoped only to your
-# custom hostname (otherwise the Access authorized callback can 404).
+# Keep workers_dev enabled. Access completes login on
+# https://<name>.<account>.workers.dev/cdn-cgi/access/authorized
+# The Access application must list that current hostname. A previous Worker
+# name returns Cloudflare error 1042 and admin login never finishes.
 # Preview URLs stay disabled.
 workers_dev = true
 preview_urls = false
